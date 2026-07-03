@@ -1,0 +1,239 @@
+// =============================================================================
+// Orbita — Gestão financeira + estoque de pizzarias (multi-tenant / RBAC)
+// =============================================================================
+// PROVIDER ATUAL: MongoDB (usa `prisma db push`, migrations não se aplicam).
+//
+// PORTABILIDADE PARA POSTGRESQL (futuro):
+//   O schema foi escrito de forma relacional-portável (FKs explícitas, join
+//   models, sem Json[] nem arrays de ObjectId em relações). Para migrar:
+//     1. provider = "postgresql"
+//     2. Troque nos @id:  @default(auto()) @map("_id") @db.ObjectId
+//                    por: @default(cuid())
+//        e remova os `@db.ObjectId` dos campos de FK.
+//     3. `prisma migrate dev --name init`  (migrations passam a funcionar)
+//   Campos `String[]` escalares (ex.: permissions) são portáveis: viram text[].
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+/// Papel do usuário no NÍVEL DA PLATAFORMA.
+/// SUPER_ADMIN gerencia tudo (todas as empresas). USER opera dentro das
+/// empresas às quais pertence, com permissões vindas do Role (cargo) dinâmico.
+enum SystemRole {
+  SUPER_ADMIN
+  USER
+}
+
+/// Papel do usuário DENTRO de uma empresa (membership).
+/// ADMIN é o dono do estabelecimento (cria cargos/roles). STAFF é funcionário,
+/// cujas permissões efetivas vêm do Role atribuído.
+enum EstablishmentRole {
+  ADMIN
+  STAFF
+}
+
+/// Direção de uma movimentação de estoque.
+enum StockMovementType {
+  IN // entrada (compra, ajuste positivo)
+  OUT // saída (venda, perda, ajuste negativo)
+}
+
+/// Natureza de um lançamento financeiro.
+enum TransactionType {
+  INCOME // receita
+  EXPENSE // despesa
+}
+
+// =============================================================================
+// USUÁRIO (nível plataforma)
+// =============================================================================
+
+model User {
+  id                 String     @id @default(auto()) @map("_id") @db.ObjectId
+  name               String
+  email              String     @unique
+  password           String
+  role               SystemRole @default(USER)
+  active             Boolean    @default(true)
+  // Forçar troca de senha no próximo login (ex.: após reset pelo super admin).
+  mustChangePassword Boolean    @default(false)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  memberships      Membership[]
+  ownedEstablishments Establishment[] @relation("EstablishmentOwner")
+}
+
+// =============================================================================
+// EMPRESA / ESTABELECIMENTO (o "tenant" — cada pizzaria é isolada)
+// =============================================================================
+
+model Establishment {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  slug      String   @unique
+  document  String? // CNPJ/CPF
+  phone     String?
+  address   String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownerId String @db.ObjectId
+  owner   User   @relation("EstablishmentOwner", fields: [ownerId], references: [id])
+
+  memberships  Membership[]
+  roles        Role[]
+  products     Product[]
+  stockItems   StockItem[]
+  stockMoves   StockMovement[]
+  transactions Transaction[]
+  categories   Category[]
+}
+
+// =============================================================================
+// MEMBERSHIP — vínculo User <-> Empresa, com o cargo (Role) atribuído
+// =============================================================================
+
+model Membership {
+  id   String            @id @default(auto()) @map("_id") @db.ObjectId
+  role EstablishmentRole @default(STAFF)
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  // Cargo dinâmico criado pelo admin (nulo => usa permissões implícitas do role)
+  customRoleId String? @db.ObjectId
+  customRole   Role?   @relation(fields: [customRoleId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, establishmentId])
+}
+
+// =============================================================================
+// ROLE (CARGO) — criado dinamicamente pelo ADMIN de cada empresa
+// permissions: lista de chaves (ver src/lib/permissions.ts). String[] é
+// portável tanto para Mongo quanto para Postgres (text[]).
+// =============================================================================
+
+model Role {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  permissions String[] @default([])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  memberships Membership[]
+
+  @@unique([establishmentId, name])
+}
+
+// =============================================================================
+// DOMÍNIO — CATEGORIAS (compartilhadas por produtos e lançamentos)
+// =============================================================================
+
+model Category {
+  id   String @id @default(auto()) @map("_id") @db.ObjectId
+  name String
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  products     Product[]
+  transactions Transaction[]
+
+  @@unique([establishmentId, name])
+}
+
+// =============================================================================
+// DOMÍNIO — PRODUTOS (itens vendáveis: pizzas, bebidas...)
+// =============================================================================
+
+model Product {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  price       Float
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  categoryId String?   @db.ObjectId
+  category   Category? @relation(fields: [categoryId], references: [id])
+}
+
+// =============================================================================
+// DOMÍNIO — ESTOQUE (insumos: farinha, queijo, molho...)
+// =============================================================================
+
+model StockItem {
+  id       String  @id @default(auto()) @map("_id") @db.ObjectId
+  name     String
+  unit     String // "kg", "un", "L"...
+  quantity Float   @default(0)
+  minLevel Float   @default(0) // alerta de estoque mínimo
+  costPrice Float  @default(0)
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  movements StockMovement[]
+
+  @@unique([establishmentId, name])
+}
+
+model StockMovement {
+  id       String            @id @default(auto()) @map("_id") @db.ObjectId
+  type     StockMovementType
+  quantity Float
+  note     String?
+  createdAt DateTime         @default(now())
+
+  stockItemId String    @db.ObjectId
+  stockItem   StockItem @relation(fields: [stockItemId], references: [id])
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+}
+
+// =============================================================================
+// DOMÍNIO — FINANCEIRO (receitas e despesas)
+// =============================================================================
+
+model Transaction {
+  id          String          @id @default(auto()) @map("_id") @db.ObjectId
+  type        TransactionType
+  description String
+  amount      Float
+  paidAt      DateTime?
+  dueAt       DateTime?
+  createdAt   DateTime        @default(now())
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  categoryId String?   @db.ObjectId
+  category   Category? @relation(fields: [categoryId], references: [id])
+}
