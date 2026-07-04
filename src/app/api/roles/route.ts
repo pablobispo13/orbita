@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/auth";
+import { requireEstablishment, requirePermission, jsonError } from "@/lib/auth";
 import { PERMISSIONS, ALL_PERMISSIONS } from "@/lib/permissions";
 
 // Lista os cargos (roles) da empresa ativa.
+// Basta gerenciar cargos OU membros — a lista alimenta a atribuição de cargo.
 export async function GET(req: NextRequest) {
-  const { ctx, response } = await requirePermission(req, PERMISSIONS.ROLE_MANAGE);
+  const { ctx, response } = await requireEstablishment(req);
   if (response) return response;
+  if (
+    !ctx.permissions.includes(PERMISSIONS.ROLE_MANAGE) &&
+    !ctx.permissions.includes(PERMISSIONS.MEMBER_MANAGE)
+  ) {
+    return jsonError("Permissão insuficiente", 403);
+  }
 
   const roles = await prisma.role.findMany({
     where: { establishmentId: ctx.establishmentId },

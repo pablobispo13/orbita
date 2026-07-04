@@ -103,7 +103,7 @@ export function DashboardView({ companyMode = false }: { companyMode?: boolean }
               Você ainda não pertence a nenhuma empresa.
             </p>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {user.memberships.map((m) => {
                 const active = m.establishment.id === activeEstablishmentId;
                 return (

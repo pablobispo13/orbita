@@ -55,6 +55,21 @@ enum TransactionType {
   EXPENSE // despesa
 }
 
+/// Tipo de notificação. Sistema genérico usado por vários módulos.
+enum NotificationType {
+  PASSWORD_RESET_REQUEST // funcionário pediu recuperação de senha (requer ação)
+  PRODUCT_EXPIRY // alerta de vencimento de produto (Fase 3)
+  PROFIT_REPORT // relatório de lucro do dia/semana/mês (Fase 4)
+  GENERIC // aviso genérico
+}
+
+/// Situação da notificação.
+enum NotificationStatus {
+  PENDING // requer ação do gestor (ex.: gerar senha)
+  RESOLVED // ação concluída
+  INFO // apenas informativo
+}
+
 // =============================================================================
 // USUÁRIO (nível plataforma)
 // =============================================================================
@@ -73,6 +88,8 @@ model User {
 
   memberships      Membership[]
   ownedEstablishments Establishment[] @relation("EstablishmentOwner")
+  notificationsTargeted Notification[] @relation("NotificationTarget")
+  pushSubscriptions PushSubscription[]
 }
 
 // =============================================================================
@@ -93,13 +110,14 @@ model Establishment {
   ownerId String @db.ObjectId
   owner   User   @relation("EstablishmentOwner", fields: [ownerId], references: [id])
 
-  memberships  Membership[]
-  roles        Role[]
-  products     Product[]
-  stockItems   StockItem[]
-  stockMoves   StockMovement[]
-  transactions Transaction[]
-  categories   Category[]
+  memberships   Membership[]
+  roles         Role[]
+  products      Product[]
+  stockItems    StockItem[]
+  stockMoves    StockMovement[]
+  transactions  Transaction[]
+  categories    Category[]
+  notifications Notification[]
 }
 
 // =============================================================================
@@ -236,4 +254,51 @@ model Transaction {
 
   categoryId String?   @db.ObjectId
   category   Category? @relation(fields: [categoryId], references: [id])
+}
+
+// =============================================================================
+// NOTIFICAÇÕES — sistema genérico por empresa.
+// Usado para: pedido de recuperação de senha (requer ação do gestor),
+// vencimento de produtos (Fase 3), relatórios de lucro (Fase 4) e avisos gerais.
+// =============================================================================
+
+model Notification {
+  id        String             @id @default(auto()) @map("_id") @db.ObjectId
+  type      NotificationType
+  status    NotificationStatus @default(INFO)
+  title     String
+  message   String
+  read      Boolean            @default(false)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  // Opcional: nulo => notificação de PLATAFORMA (super admin -> usuário),
+  // sem vínculo com empresa. Preenchido => notificação da empresa (tenant).
+  establishmentId String?        @db.ObjectId
+  establishment   Establishment? @relation(fields: [establishmentId], references: [id])
+
+  // Para PASSWORD_RESET_REQUEST e notificações direcionadas: usuário-alvo.
+  targetUserId String? @db.ObjectId
+  targetUser   User?   @relation("NotificationTarget", fields: [targetUserId], references: [id])
+
+  @@index([establishmentId, createdAt])
+  @@index([targetUserId, createdAt])
+}
+
+// =============================================================================
+// PUSH SUBSCRIPTION — assinatura Web Push por dispositivo (Windows/mobile).
+// Permite enviar notificações do sistema mesmo com o app fechado.
+// =============================================================================
+
+model PushSubscription {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([userId])
 }

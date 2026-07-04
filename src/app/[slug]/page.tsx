@@ -6,6 +6,8 @@ import { toast } from "react-toastify";
 import api from "@/lib/api";
 import { OrbitMark } from "@/components/Logo";
 import { PasswordInput } from "@/components/PasswordInput";
+import { Modal } from "@/components/Modal";
+import { APP_NAME } from "@/lib/brand";
 
 type Establishment = { id: string; name: string; slug: string };
 
@@ -26,6 +28,30 @@ export default function EstablishmentLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Recuperação de senha (pedido ao gestor da empresa).
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotSending, setForgotSending] = useState(false);
+
+  async function requestPasswordReset(e: React.FormEvent) {
+    e.preventDefault();
+    if (!forgotEmail.trim()) return;
+    setForgotSending(true);
+    try {
+      const { data } = await api.post<{ message: string }>(
+        `/public/establishment/${slug}/password-reset-request`,
+        { email: forgotEmail.trim() }
+      );
+      toast.success(data.message);
+      setForgotOpen(false);
+      setForgotEmail("");
+    } catch {
+      /* toast global cuida do erro */
+    } finally {
+      setForgotSending(false);
+    }
+  }
 
   // Entra na empresa: grava a empresa ativa e vai pro dashboard
   // (ou para a troca obrigatória de senha, se pendente).
@@ -145,7 +171,7 @@ export default function EstablishmentLoginPage() {
             <h1 className="text-xl font-bold">{establishment?.name}</h1>
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
               Acesso da empresa · via{" "}
-              <span className="text-[var(--accent)]">Órbita</span>
+              <span className="text-[var(--accent)]">{APP_NAME}</span>
             </p>
           </div>
         </div>
@@ -175,7 +201,43 @@ export default function EstablishmentLoginPage() {
             {loading ? "Entrando..." : `Entrar em ${establishment?.name ?? ""}`}
           </button>
         </form>
+
+        <button
+          onClick={() => {
+            setForgotEmail(email);
+            setForgotOpen(true);
+          }}
+          className="w-full text-center text-sm hover:underline"
+          style={{ color: "var(--text-muted)" }}
+        >
+          Esqueci minha senha
+        </button>
       </div>
+
+      {/* Modal: pedido de recuperação de senha (o gestor gera e repassa) */}
+      <Modal open={forgotOpen} onClose={() => setForgotOpen(false)} title="Recuperar senha">
+        <form onSubmit={requestPasswordReset} className="space-y-4">
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+            Informe seu e-mail. O gestor da empresa será avisado para gerar uma nova senha
+            e repassá-la a você.
+          </p>
+          <input
+            type="email"
+            placeholder="E-mail"
+            value={forgotEmail}
+            onChange={(e) => setForgotEmail(e.target.value)}
+            className="orbita-input w-full px-3 py-2.5"
+            required
+          />
+          <button
+            type="submit"
+            disabled={forgotSending || !forgotEmail.trim()}
+            className="orbita-btn w-full px-4 py-2.5"
+          >
+            {forgotSending ? "Enviando..." : "Enviar pedido"}
+          </button>
+        </form>
+      </Modal>
     </main>
   );
 }

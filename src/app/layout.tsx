@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, Inter } from "next/font/google";
 import { ToastContainer } from "react-toastify";
+import { APP_NAME, APP_TAGLINE } from "@/lib/brand";
 import "react-toastify/dist/ReactToastify.css";
 import "./globals.css";
 
@@ -17,9 +18,16 @@ const body = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Órbita — Gestão multi-empresa",
+  title: `${APP_NAME} — ${APP_TAGLINE}`,
   description:
     "Console central para gestão financeira e de estoque de múltiplas empresas.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, title: APP_NAME, statusBarStyle: "black-translucent" },
+  icons: { icon: "/icon.svg", apple: "/icon.svg" },
+};
+
+export const viewport = {
+  themeColor: "#0B0714",
 };
 
 // Define o tema antes da 1ª pintura (evita flash). Lê localStorage ou a

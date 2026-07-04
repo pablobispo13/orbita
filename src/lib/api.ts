@@ -9,12 +9,12 @@ declare module "axios" {
 
 export type LogoutReason = "expired" | "manual" | "password_changed";
 
-export function handleLogout(reason?: LogoutReason) {
+export function handleLogout(reason?: LogoutReason, redirectTo = "/login") {
   if (typeof window === "undefined") return;
   localStorage.removeItem("token");
   localStorage.removeItem("activeEstablishmentId");
   if (reason) localStorage.setItem("logout_reason", reason);
-  window.location.href = "/login";
+  window.location.href = redirectTo;
 }
 
 const api = axios.create({ baseURL: "/api" });

@@ -1,5 +1,8 @@
-// Marca ÓRBITA — um planeta orbitando um núcleo (console central).
+// Marca — um planeta orbitando um núcleo (console central).
 // Gradiente violeta → ciano, coerente com os design tokens.
+// O nome exibido no wordmark vem de src/lib/brand.ts (white-label).
+
+import { APP_NAME } from "@/lib/brand";
 
 export function OrbitMark({ size = 32 }: { size?: number }) {
   const id = "orbita-grad";
@@ -51,7 +54,7 @@ export function OrbitaLogo({
           className="font-display font-bold tracking-tight"
           style={{ fontSize: size * 0.72 }}
         >
-          Órbita
+          {APP_NAME}
         </span>
       )}
     </span>

@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import api from "@/lib/api";
 import { useAuthContext } from "@/context/AuthContext";
 
-export type ViewKey = "dashboard" | "empresas" | "usuarios";
+export type ViewKey = "dashboard" | "empresas" | "usuarios" | "cargos";
 export type ShellMode = "platform" | "company";
 
 type NavItem = { key: ViewKey; label: string; icon: string };
@@ -21,16 +23,30 @@ const PLATFORM_GROUPS: NavGroup[] = [
   },
 ];
 
-// Menu do contexto EMPRESA (/{slug}/dashboard) — operação da empresa.
+// Menu do contexto EMPRESA (/{slug}/dashboard) — operação da empresa,
+// agrupado por categoria.
 const COMPANY_GROUPS: NavGroup[] = [
   {
-    label: "Empresa",
+    label: "Geral",
+    items: [{ key: "dashboard", label: "Dashboard", icon: "🏠" }],
+  },
+  {
+    label: "Configurações",
     items: [
-      { key: "dashboard", label: "Dashboard", icon: "🏠" },
+      { key: "cargos", label: "Cargos", icon: "🛡️" },
       { key: "usuarios", label: "Usuários", icon: "👥" },
     ],
   },
 ];
+
+// Configurações base expostas por empresa no submenu do super admin.
+const COMPANY_CONFIG_ITEMS: NavItem[] = [
+  { key: "dashboard", label: "Dashboard", icon: "🏠" },
+  { key: "cargos", label: "Cargos", icon: "🛡️" },
+  { key: "usuarios", label: "Usuários", icon: "👥" },
+];
+
+type CompanyRef = { id: string; name: string; slug: string };
 
 export function viewsForMode(mode: ShellMode, isSuperAdmin: boolean): ViewKey[] {
   const groups = mode === "company" ? COMPANY_GROUPS : PLATFORM_GROUPS;
@@ -44,6 +60,8 @@ export function Sidebar({
   mode,
   view,
   onSelect,
+  onEnterCompany,
+  onLogout,
   onClose,
   mounted = true,
 }: {
@@ -51,6 +69,10 @@ export function Sidebar({
   mode: ShellMode;
   view: ViewKey;
   onSelect: (v: ViewKey) => void;
+  // Navega para dentro de uma empresa num view específico (super admin).
+  onEnterCompany: (company: CompanyRef, view: ViewKey) => void;
+  // Sobrescreve o comportamento de logout (ex.: voltar ao login da empresa).
+  onLogout?: () => void;
   onClose: () => void;
   mounted?: boolean;
 }) {
@@ -61,6 +83,27 @@ export function Sidebar({
     (g) => !g.superAdmin || isSuperAdmin
   );
 
+  // Lista de empresas para o submenu do super admin (só no contexto plataforma).
+  const [companies, setCompanies] = useState<CompanyRef[]>([]);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const showCompanyTree = mode === "platform" && isSuperAdmin;
+
+  useEffect(() => {
+    if (!showCompanyTree) return;
+    api
+      .get<{ establishments: CompanyRef[] }>("/admin/establishments", { silent: true })
+      .then(({ data }) =>
+        setCompanies(
+          data.establishments.map((e) => ({ id: e.id, name: e.name, slug: e.slug }))
+        )
+      )
+      .catch(() => {});
+  }, [showCompanyTree]);
+
+  const groupLabelStyle = {
+    color: "var(--text-muted)",
+  } as const;
+
   const panel = (
     <div className="flex h-full flex-col">
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
@@ -68,7 +111,7 @@ export function Sidebar({
           <div key={group.label} className="space-y-1">
             <div
               className="px-3 text-[10px] font-semibold uppercase tracking-wider"
-              style={{ color: "var(--text-muted)" }}
+              style={groupLabelStyle}
             >
               {group.label}
             </div>
@@ -91,6 +134,64 @@ export function Sidebar({
             })}
           </div>
         ))}
+
+        {/* Árvore de empresas (super admin): cada empresa abre suas configs base */}
+        {showCompanyTree && (
+          <div className="space-y-1">
+            <div
+              className="px-3 text-[10px] font-semibold uppercase tracking-wider"
+              style={groupLabelStyle}
+            >
+              Empresas
+            </div>
+            {companies.length === 0 ? (
+              <div className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                Nenhuma empresa.
+              </div>
+            ) : (
+              companies.map((company) => {
+                const isOpen = expanded === company.id;
+                return (
+                  <div key={company.id}>
+                    <button
+                      onClick={() => setExpanded(isOpen ? null : company.id)}
+                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition text-left"
+                      style={{ color: "var(--text)" }}
+                    >
+                      <span
+                        aria-hidden
+                        className="inline-block w-3 text-xs transition-transform"
+                        style={{ transform: isOpen ? "rotate(90deg)" : "none" }}
+                      >
+                        ▶
+                      </span>
+                      <span aria-hidden>🏢</span>
+                      <span className="truncate">{company.name}</span>
+                    </button>
+                    {isOpen && (
+                      <div
+                        className="ml-4 border-l pl-2 space-y-0.5"
+                        style={{ borderColor: "var(--border)" }}
+                      >
+                        {COMPANY_CONFIG_ITEMS.map((item) => (
+                          <button
+                            key={item.key}
+                            onClick={() => onEnterCompany(company, item.key)}
+                            className="w-full flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs transition text-left hover:bg-white/5"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            <span aria-hidden>{item.icon}</span>
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </nav>
       <div className="border-t p-3 space-y-2" style={{ borderColor: "var(--border)" }}>
         <div className="px-2 pb-1">
@@ -100,7 +201,7 @@ export function Sidebar({
           </div>
         </div>
         <button
-          onClick={logout}
+          onClick={onLogout ?? logout}
           className="w-full rounded-lg border px-3 py-2 text-sm hover:bg-white/5"
           style={{ borderColor: "var(--border-strong)" }}
         >

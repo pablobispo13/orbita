@@ -53,7 +53,7 @@ export default function Home() {
           Seu comando central de empresas
         </h1>
         <p className="max-w-md mx-auto" style={{ color: "var(--text-muted)" }}>
-          Gestão financeira e de estoque para múltiplas empresas — em uma órbita só.
+          Gestão financeira e de estoque para múltiplas empresas — num só lugar.
         </p>
       </div>
 
@@ -63,7 +63,7 @@ export default function Home() {
 
       <p className="text-sm" style={{ color: "var(--text-muted)" }}>
         É de uma empresa específica? Acesse por{" "}
-        <span className="font-mono text-[var(--accent)]">órbita.com/sua-empresa</span>
+        <span className="font-mono text-[var(--accent)]">/sua-empresa</span>
       </p>
     </main>
   );

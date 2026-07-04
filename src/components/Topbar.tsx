@@ -2,6 +2,7 @@
 
 import { OrbitaLogo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { NotificationsBell } from "@/components/NotificationsBell";
 
 // Navbar superior fixa: controla o menu, o tema e (no contexto empresa) mostra
 // o nome da empresa e o botão de sair dela.
@@ -41,6 +42,7 @@ export function Topbar({
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        <NotificationsBell />
         {companyName && onExitCompany && (
           <button
             onClick={onExitCompany}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import api from "@/lib/api";
+import api, { handleLogout } from "@/lib/api";
 import { useAuthContext } from "@/context/AuthContext";
 import { Topbar } from "@/components/Topbar";
 import { Sidebar, viewsForMode, type ViewKey, type ShellMode } from "@/components/Sidebar";
@@ -9,6 +9,9 @@ import { DashboardView } from "@/components/views/DashboardView";
 import { EmpresasView } from "@/components/views/EmpresasView";
 import { UsuariosView } from "@/components/views/UsuariosView";
 import { CompanyUsersView } from "@/components/views/CompanyUsersView";
+import { CargosView } from "@/components/views/CargosView";
+import { APP_NAME, APP_TAGLINE } from "@/lib/brand";
+import { onNavigate } from "@/lib/navigation";
 
 // Shell autenticado. Duas modalidades:
 //  - platform (/dashboard): gestão da plataforma (super admin).
@@ -22,6 +25,10 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
   // Contexto empresa: nome resolvido + estado de resolução.
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [resolving, setResolving] = useState(mode === "company");
+  // Enquanto redireciona (ex.: funcionário caiu em /dashboard), segura a UI.
+  const [redirecting, setRedirecting] = useState(false);
+  // Foco vindo de uma notificação (ex.: abrir usuários filtrado por um usuário).
+  const [focus, setFocus] = useState<{ userId: string; nonce: number } | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -30,7 +37,12 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
     else setMenuOpen(window.matchMedia("(min-width: 768px)").matches);
 
     const storedView = localStorage.getItem("active_view");
-    if (storedView === "dashboard" || storedView === "empresas" || storedView === "usuarios") {
+    if (
+      storedView === "dashboard" ||
+      storedView === "empresas" ||
+      storedView === "usuarios" ||
+      storedView === "cargos"
+    ) {
       setView(storedView);
     }
   }, []);
@@ -42,8 +54,18 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
     if (!user) return;
 
     if (mode === "platform") {
+      // A plataforma é do super admin. Funcionário/dono que cair aqui vai direto
+      // para o dashboard da sua empresa.
+      if (!isSuperAdmin) {
+        const first = user.memberships[0];
+        if (first) {
+          setRedirecting(true);
+          setActiveEstablishment(first.establishment.id);
+          window.location.href = `/${first.establishment.slug}/dashboard`;
+          return;
+        }
+      }
       setActiveEstablishment(""); // sem empresa ativa na plataforma
-      document.title = "Órbita — Gestão multi-empresa";
       return;
     }
 
@@ -56,7 +78,6 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
         if (cancelled) return;
         setActiveEstablishment(membership.establishment.id);
         setCompanyName(membership.establishment.name);
-        document.title = `${membership.establishment.name} · Órbita`;
         setResolving(false);
         return;
       }
@@ -70,7 +91,6 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
           if (cancelled) return;
           setActiveEstablishment(data.establishment.id);
           setCompanyName(data.establishment.name);
-          document.title = `${data.establishment.name} · Órbita`;
           setResolving(false);
           return;
         } catch {
@@ -87,6 +107,16 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, mode, slug, isSuperAdmin]);
 
+  // Título da aba: nome da empresa no contexto empresa, marca no contexto plataforma.
+  // Efeito dedicado (roda após o metadata do Next) garante que o título "gruda".
+  useEffect(() => {
+    if (mode === "company") {
+      if (companyName) document.title = `${companyName} · ${APP_NAME}`;
+    } else {
+      document.title = `${APP_NAME} — ${APP_TAGLINE}`;
+    }
+  }, [mode, companyName]);
+
   function setMenu(v: boolean) {
     setMenuOpen(v);
     localStorage.setItem("menu_open", v ? "1" : "0");
@@ -97,15 +127,49 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
     localStorage.setItem("active_view", v);
   }
 
+  // Ações vindas de notificações: troca de aba (+ foco num usuário, se houver).
+  useEffect(() => {
+    return onNavigate(({ view: v, userId }) => {
+      if (
+        v === "dashboard" ||
+        v === "empresas" ||
+        v === "usuarios" ||
+        v === "cargos"
+      ) {
+        selectView(v);
+      }
+      if (userId) setFocus({ userId, nonce: Date.now() });
+    });
+  }, []);
+
   function exitCompany() {
     setActiveEstablishment("");
     window.location.href = "/dashboard";
   }
 
+  // Super admin: entra numa empresa já num view específico (submenu da sidebar).
+  function enterCompany(
+    company: { id: string; slug: string },
+    targetView: ViewKey
+  ) {
+    setActiveEstablishment(company.id);
+    localStorage.setItem("active_view", targetView);
+    window.location.href = `/${company.slug}/dashboard`;
+  }
+
   const allowed = viewsForMode(mode, !!isSuperAdmin);
   const effectiveView: ViewKey = allowed.includes(view) ? view : "dashboard";
 
-  const ready = !loading && !!user && !(mode === "company" && resolving);
+  const ready =
+    !loading && !!user && !redirecting && !(mode === "company" && resolving);
+
+  // "Sair da empresa" (voltar à plataforma) só faz sentido para o super admin.
+  const canExitToPlatform = mode === "company" && isSuperAdmin;
+  // Funcionário da empresa: ao sair, volta para o login da própria empresa (/{slug}).
+  const companyLogout =
+    mode === "company" && !isSuperAdmin && slug
+      ? () => handleLogout("manual", `/${slug}`)
+      : undefined;
 
   return (
     <div className="min-h-screen">
@@ -113,7 +177,7 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
         menuOpen={menuOpen}
         onToggleMenu={() => setMenu(!menuOpen)}
         companyName={mode === "company" ? companyName : null}
-        onExitCompany={exitCompany}
+        onExitCompany={canExitToPlatform ? exitCompany : undefined}
       />
       <div className="flex pt-14 min-h-screen">
         {ready ? (
@@ -123,6 +187,8 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
             mode={mode}
             view={effectiveView}
             onSelect={selectView}
+            onEnterCompany={enterCompany}
+            onLogout={companyLogout}
             onClose={() => setMenu(false)}
           />
         ) : (
@@ -141,7 +207,13 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
             </div>
           ) : mode === "company" ? (
             effectiveView === "usuarios" ? (
-              <CompanyUsersView companyName={companyName} />
+              <CompanyUsersView
+                companyName={companyName}
+                focusUserId={focus?.userId ?? null}
+                focusNonce={focus?.nonce ?? 0}
+              />
+            ) : effectiveView === "cargos" ? (
+              <CargosView companyName={companyName} />
             ) : (
               <DashboardView companyMode />
             )
