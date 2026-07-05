@@ -7,9 +7,12 @@ import { Topbar } from "@/components/Topbar";
 import { Sidebar, viewsForMode, type ViewKey, type ShellMode } from "@/components/Sidebar";
 import { DashboardView } from "@/components/views/DashboardView";
 import { EmpresasView } from "@/components/views/EmpresasView";
+import { MinhasEmpresasView } from "@/components/views/MinhasEmpresasView";
 import { UsuariosView } from "@/components/views/UsuariosView";
 import { CompanyUsersView } from "@/components/views/CompanyUsersView";
 import { CargosView } from "@/components/views/CargosView";
+import { ConfiguracoesEmpresaView } from "@/components/views/ConfiguracoesEmpresaView";
+import { SegurancaView } from "@/components/views/SegurancaView";
 import { APP_NAME, APP_TAGLINE } from "@/lib/brand";
 import { onNavigate } from "@/lib/navigation";
 
@@ -17,7 +20,7 @@ import { onNavigate } from "@/lib/navigation";
 //  - platform (/dashboard): gestão da plataforma (super admin).
 //  - company (/{slug}/dashboard): operação de uma empresa específica.
 export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
-  const { user, loading, activeEstablishmentId, setActiveEstablishment } = useAuthContext();
+  const { user, loading, setActiveEstablishment } = useAuthContext();
   const [mounted, setMounted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(true);
   const [view, setView] = useState<ViewKey>("dashboard");
@@ -40,8 +43,11 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
     if (
       storedView === "dashboard" ||
       storedView === "empresas" ||
+      storedView === "minhas-empresas" ||
+      storedView === "config-empresa" ||
       storedView === "usuarios" ||
-      storedView === "cargos"
+      storedView === "cargos" ||
+      storedView === "seguranca"
     ) {
       setView(storedView);
     }
@@ -54,15 +60,19 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
     if (!user) return;
 
     if (mode === "platform") {
-      // A plataforma é do super admin. Funcionário/dono que cair aqui vai direto
-      // para o dashboard da sua empresa.
+      // A plataforma é do super admin. Usuário comum:
+      //  - 1 empresa: vai direto para o dashboard dela (fluxo antigo);
+      //  - 2+ empresas: fica na plataforma e vê o hub "Minhas Empresas".
       if (!isSuperAdmin) {
-        const first = user.memberships[0];
-        if (first) {
+        if (user.memberships.length === 1) {
+          const first = user.memberships[0];
           setRedirecting(true);
           setActiveEstablishment(first.establishment.id);
           window.location.href = `/${first.establishment.slug}/dashboard`;
           return;
+        }
+        if (user.memberships.length >= 2 && !localStorage.getItem("active_view")) {
+          setView("minhas-empresas");
         }
       }
       setActiveEstablishment(""); // sem empresa ativa na plataforma
@@ -133,8 +143,11 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
       if (
         v === "dashboard" ||
         v === "empresas" ||
+        v === "minhas-empresas" ||
+        v === "config-empresa" ||
         v === "usuarios" ||
-        v === "cargos"
+        v === "cargos" ||
+        v === "seguranca"
       ) {
         selectView(v);
       }
@@ -157,7 +170,8 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
     window.location.href = `/${company.slug}/dashboard`;
   }
 
-  const allowed = viewsForMode(mode, !!isSuperAdmin);
+  const multiCompany = !isSuperAdmin && (user?.memberships?.length ?? 0) >= 2;
+  const allowed = viewsForMode(mode, !!isSuperAdmin, multiCompany);
   const effectiveView: ViewKey = allowed.includes(view) ? view : "dashboard";
 
   const ready =
@@ -214,18 +228,41 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
               />
             ) : effectiveView === "cargos" ? (
               <CargosView companyName={companyName} />
+            ) : effectiveView === "config-empresa" ? (
+              <ConfiguracoesEmpresaView companyName={companyName} />
+            ) : effectiveView === "seguranca" ? (
+              <SegurancaView />
             ) : (
               <DashboardView companyMode />
             )
           ) : effectiveView === "empresas" ? (
             <EmpresasView />
+          ) : effectiveView === "minhas-empresas" ? (
+            <MinhasEmpresasView />
           ) : effectiveView === "usuarios" ? (
             <UsuariosView />
+          ) : effectiveView === "seguranca" ? (
+            <SegurancaView />
           ) : (
             <DashboardView />
           )}
         </main>
       </div>
+
+      {/* Botão flutuante "Voltar ao início" — atalho para o Dashboard sem abrir o
+          menu. Só aparece fora do próprio Dashboard. */}
+      {ready && effectiveView !== "dashboard" && (
+        <button
+          onClick={() => selectView("dashboard")}
+          title="Voltar ao início"
+          aria-label="Voltar ao início"
+          className="fixed bottom-5 right-5 z-30 flex items-center gap-2 rounded-full px-4 h-11 shadow-lg text-sm font-medium hover:opacity-90 transition"
+          style={{ background: "var(--brand-soft)", color: "var(--brand-text)", border: "1px solid var(--border-strong)" }}
+        >
+          <span aria-hidden className="text-base">←</span>
+          <span className="hidden sm:inline">Voltar</span>
+        </button>
+      )}
     </div>
   );
 }

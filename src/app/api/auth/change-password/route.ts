@@ -2,23 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, jsonError } from "@/lib/auth";
+import { requireAuth, jsonError, zodError } from "@/lib/auth";
+import { withRoute } from "@/lib/http";
 
 const schema = z.object({
-  currentPassword: z.string().min(1),
-  newPassword: z.string().min(6),
+  currentPassword: z.string().min(1, "Informe a senha atual"),
+  newPassword: z.string().min(6, "A nova senha deve ter ao menos 6 caracteres"),
 });
 
 // Troca de senha do PRÓPRIO usuário autenticado.
-export async function POST(req: NextRequest) {
+export const POST = withRoute(async (req: NextRequest) => {
   const auth = requireAuth(req);
   if (auth.response) return auth.response;
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
-  if (!parsed.success) {
-    return jsonError("Nova senha deve ter ao menos 6 caracteres", 400);
-  }
+  if (!parsed.success) return zodError(parsed.error);
 
   const { currentPassword, newPassword } = parsed.data;
 
@@ -38,5 +37,8 @@ export async function POST(req: NextRequest) {
     data: { password: hashed, mustChangePassword: false },
   });
 
+  // Segurança: invalida todas as sessões antigas (refresh tokens) após a troca.
+  await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+
   return NextResponse.json({ message: "Senha alterada com sucesso" });
-}
+});

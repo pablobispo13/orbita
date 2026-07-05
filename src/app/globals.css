@@ -81,6 +81,37 @@ body {
     var(--bg);
 }
 
+/* =========================================================================
+   Scrollbar personalizada (marca Órbita) — theme-aware.
+   Firefox usa scrollbar-color; WebKit/Chromium usa os pseudo-elementos.
+   ========================================================================= */
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(var(--border-strong), var(--brand));
+  border-radius: 999px;
+  /* borda transparente cria um respiro em volta do "polegar" */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(var(--brand), var(--accent));
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 h1,
 h2,
 h3,
@@ -110,6 +141,45 @@ h3,
   transform: scale(0.97);
 }
 .orbita-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Botão secundário (ex.: Cancelar) — contorno, mesma altura/peso do primário. */
+.orbita-btn-secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.75rem;
+  font-weight: 600;
+  transition: background 0.15s ease, transform 0.05s ease;
+}
+.orbita-btn-secondary:hover {
+  background: rgba(127, 127, 127, 0.12);
+}
+.orbita-btn-secondary:active {
+  transform: scale(0.97);
+}
+.orbita-btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Botão de ação destrutiva (ex.: Inativar, Remover dono). */
+.orbita-btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  transition: filter 0.15s ease, transform 0.05s ease;
+}
+.orbita-btn-danger:hover {
+  filter: brightness(1.1);
+}
+.orbita-btn-danger:active {
+  transform: scale(0.97);
+}
+.orbita-btn-danger:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

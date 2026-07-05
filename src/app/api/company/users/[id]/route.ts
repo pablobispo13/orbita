@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requirePermission, jsonError } from "@/lib/auth";
+import { requirePermission, jsonError, zodError } from "@/lib/auth";
+import { withRoute } from "@/lib/http";
 import { PERMISSIONS } from "@/lib/permissions";
+
+type Ctx = { params: Promise<{ id: string }> };
 
 // `id` aqui é o userId do membro dentro da empresa ativa.
 async function findMembership(userId: string, establishmentId: string) {
@@ -17,10 +20,7 @@ const updateSchema = z.object({
 });
 
 // Atualiza o cargo de um membro da empresa ativa. Exige MEMBER_MANAGE.
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const PATCH = withRoute(async (req: NextRequest, { params }: Ctx) => {
   const { ctx, response } = await requirePermission(req, PERMISSIONS.MEMBER_MANAGE);
   if (response) return response;
 
@@ -35,7 +35,7 @@ export async function PATCH(
 
   const body = await req.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
-  if (!parsed.success) return jsonError("Dados inválidos", 400);
+  if (!parsed.success) return zodError(parsed.error);
 
   const { customRoleId } = parsed.data;
   if (customRoleId) {
@@ -51,13 +51,10 @@ export async function PATCH(
   });
 
   return NextResponse.json({ ok: true });
-}
+});
 
 // Remove um membro da empresa ativa (desvincula). Exige MEMBER_MANAGE.
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const DELETE = withRoute(async (req: NextRequest, { params }: Ctx) => {
   const { ctx, response } = await requirePermission(req, PERMISSIONS.MEMBER_MANAGE);
   if (response) return response;
 
@@ -72,4 +69,4 @@ export async function DELETE(
 
   await prisma.membership.delete({ where: { id: membership.id } });
   return NextResponse.json({ ok: true });
-}
+});

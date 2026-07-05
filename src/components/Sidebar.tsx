@@ -4,15 +4,28 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuthContext } from "@/context/AuthContext";
 
-export type ViewKey = "dashboard" | "empresas" | "usuarios" | "cargos";
+export type ViewKey =
+  | "dashboard"
+  | "empresas"
+  | "minhas-empresas"
+  | "config-empresa"
+  | "usuarios"
+  | "cargos"
+  | "seguranca";
 export type ShellMode = "platform" | "company";
 
 type NavItem = { key: ViewKey; label: string; icon: string };
-type NavGroup = { label: string; items: NavItem[]; superAdmin?: boolean };
+// `multiCompany`: só aparece para usuário comum com 2+ empresas.
+type NavGroup = { label: string; items: NavItem[]; superAdmin?: boolean; multiCompany?: boolean };
 
 // Menu do contexto PLATAFORMA (/dashboard) — gestão da plataforma.
 const PLATFORM_GROUPS: NavGroup[] = [
   { label: "Geral", items: [{ key: "dashboard", label: "Dashboard", icon: "🏠" }] },
+  {
+    label: "Minhas empresas",
+    multiCompany: true,
+    items: [{ key: "minhas-empresas", label: "Minhas Empresas", icon: "🏢" }],
+  },
   {
     label: "Plataforma",
     superAdmin: true,
@@ -33,6 +46,7 @@ const COMPANY_GROUPS: NavGroup[] = [
   {
     label: "Configurações",
     items: [
+      { key: "config-empresa", label: "Empresa", icon: "🏢" },
       { key: "cargos", label: "Cargos", icon: "🛡️" },
       { key: "usuarios", label: "Usuários", icon: "👥" },
     ],
@@ -42,17 +56,24 @@ const COMPANY_GROUPS: NavGroup[] = [
 // Configurações base expostas por empresa no submenu do super admin.
 const COMPANY_CONFIG_ITEMS: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "🏠" },
+  { key: "config-empresa", label: "Empresa", icon: "🏢" },
   { key: "cargos", label: "Cargos", icon: "🛡️" },
   { key: "usuarios", label: "Usuários", icon: "👥" },
 ];
 
 type CompanyRef = { id: string; name: string; slug: string };
 
-export function viewsForMode(mode: ShellMode, isSuperAdmin: boolean): ViewKey[] {
+export function viewsForMode(
+  mode: ShellMode,
+  isSuperAdmin: boolean,
+  multiCompany = false
+): ViewKey[] {
   const groups = mode === "company" ? COMPANY_GROUPS : PLATFORM_GROUPS;
-  return groups
-    .filter((g) => !g.superAdmin || isSuperAdmin)
+  const keys = groups
+    .filter((g) => (!g.superAdmin || isSuperAdmin) && (!g.multiCompany || multiCompany))
     .flatMap((g) => g.items.map((i) => i.key));
+  // "Segurança" é da conta do usuário — disponível em qualquer contexto.
+  return [...keys, "seguranca"];
 }
 
 export function Sidebar({
@@ -78,9 +99,10 @@ export function Sidebar({
 }) {
   const { user, logout } = useAuthContext();
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const multiCompany = !isSuperAdmin && (user?.memberships?.length ?? 0) >= 2;
 
   const groups = (mode === "company" ? COMPANY_GROUPS : PLATFORM_GROUPS).filter(
-    (g) => !g.superAdmin || isSuperAdmin
+    (g) => (!g.superAdmin || isSuperAdmin) && (!g.multiCompany || multiCompany)
   );
 
   // Lista de empresas para o submenu do super admin (só no contexto plataforma).
@@ -193,6 +215,22 @@ export function Sidebar({
           </div>
         )}
       </nav>
+
+      {/* Segurança: último item, ancorado logo acima dos dados do usuário/logout. */}
+      <div className="px-3 pb-2">
+        <button
+          onClick={() => onSelect("seguranca")}
+          className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition text-left"
+          style={{
+            background: view === "seguranca" ? "var(--brand-soft)" : "transparent",
+            color: view === "seguranca" ? "var(--brand-text)" : "var(--text)",
+          }}
+        >
+          <span aria-hidden>🔒</span>
+          Segurança
+        </button>
+      </div>
+
       <div className="border-t p-3 space-y-2" style={{ borderColor: "var(--border)" }}>
         <div className="px-2 pb-1">
           <div className="text-sm font-medium truncate">{user?.name}</div>

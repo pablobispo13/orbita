@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { ZodError } from "zod";
 import { verifyToken, type JwtPayload } from "@/lib/jwt";
 import { prisma } from "@/lib/prisma";
 import { ALL_PERMISSIONS, type Permission } from "@/lib/permissions";
@@ -9,6 +10,19 @@ import { ALL_PERMISSIONS, type Permission } from "@/lib/permissions";
 
 export function jsonError(message: string, status = 400) {
   return NextResponse.json({ message }, { status });
+}
+
+/// Resposta 400 padronizada para falhas de validação Zod. Retorna o MOTIVO
+/// (primeira mensagem, legível) em `message` e o mapa campo→erro em `errors`,
+/// para a UI destacar o campo e explicar o porquê.
+export function zodError(error: ZodError) {
+  const errors: Record<string, string> = {};
+  for (const issue of error.issues) {
+    const key = issue.path.join(".") || "_";
+    if (!errors[key]) errors[key] = issue.message;
+  }
+  const message = error.issues[0]?.message ?? "Dados inválidos";
+  return NextResponse.json({ message, errors }, { status: 400 });
 }
 
 // -----------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
-import api from "@/lib/api";
+import api, { apiErrorMessage } from "@/lib/api";
 import { Modal } from "@/components/Modal";
 import {
   DataTable,
@@ -54,6 +54,7 @@ export function CompanyUsersView({
   const [email, setEmail] = useState("");
   const [newRoleId, setNewRoleId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   const [credentials, setCredentials] = useState<Credentials | null>(null);
   const [detail, setDetail] = useState<CompanyUser | null>(null);
@@ -121,6 +122,7 @@ export function CompanyUsersView({
     setName("");
     setEmail("");
     setNewRoleId("");
+    setAddError(null);
     setAddOpen(true);
   }
 
@@ -128,10 +130,12 @@ export function CompanyUsersView({
     e.preventDefault();
     if (name.trim().length < 2 || !email.trim()) return;
     setSaving(true);
+    setAddError(null);
     try {
       const { data } = await api.post<{ linked: boolean; generatedPassword?: string }>(
         "/company/users",
-        { name: name.trim(), email: email.trim(), customRoleId: newRoleId || null }
+        { name: name.trim(), email: email.trim(), customRoleId: newRoleId || null },
+        { silent: true }
       );
       setAddOpen(false);
       if (data.generatedPassword) {
@@ -140,8 +144,8 @@ export function CompanyUsersView({
         toast.success("Usuário já cadastrado foi vinculado à empresa (usa a senha que já possui).");
       }
       await load();
-    } catch {
-      /* toast global cuida do erro */
+    } catch (err) {
+      setAddError(apiErrorMessage(err, "Não foi possível adicionar o membro."));
     } finally {
       setSaving(false);
     }
@@ -348,6 +352,14 @@ export function CompanyUsersView({
               ))}
             </select>
           </label>
+          {addError && (
+            <div
+              className="rounded-lg px-3 py-2 text-sm"
+              style={{ background: "rgba(248,113,113,0.12)", color: "var(--danger)" }}
+            >
+              {addError}
+            </div>
+          )}
           <div className="flex items-center gap-3 pt-1">
             <button
               type="submit"

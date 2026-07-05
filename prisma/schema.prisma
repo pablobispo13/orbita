@@ -90,6 +90,7 @@ model User {
   ownedEstablishments Establishment[] @relation("EstablishmentOwner")
   notificationsTargeted Notification[] @relation("NotificationTarget")
   pushSubscriptions PushSubscription[]
+  refreshTokens    RefreshToken[]
 }
 
 // =============================================================================
@@ -296,6 +297,24 @@ model PushSubscription {
   p256dh    String
   auth      String
   createdAt DateTime @default(now())
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+// =============================================================================
+// REFRESH TOKEN — sessão longa com rotação e revogação (CP2.2).
+// O access token (JWT) é curto; o refresh token opaco é trocado por um novo
+// access (e rotacionado) via /api/auth/refresh. Persistido para permitir revogar.
+// =============================================================================
+
+model RefreshToken {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  token     String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
 
   userId String @db.ObjectId
   user   User   @relation(fields: [userId], references: [id])

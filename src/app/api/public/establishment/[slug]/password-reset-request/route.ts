@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import {
@@ -8,16 +8,17 @@ import {
   NOTIFICATION_STATUS,
 } from "@/lib/notifications";
 import { sendPushToUsers } from "@/lib/push";
+import { withRoute } from "@/lib/http";
 
 const schema = z.object({ email: z.string().email() });
 
 // Endpoint PÚBLICO: um funcionário que esqueceu a senha pede recuperação pela
 // tela de login da empresa (/[slug]). Cria uma notificação PENDENTE para o gestor
 // processar (gerar e repassar a senha). Nunca revela se o e-mail existe.
-export async function POST(
-  req: Request,
+export const POST = withRoute(async (
+  req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
-) {
+) => {
   const { slug } = await params;
 
   const body = await req.json().catch(() => null);
@@ -84,4 +85,4 @@ export async function POST(
   });
 
   return ok;
-}
+});

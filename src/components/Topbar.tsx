@@ -3,9 +3,12 @@
 import { OrbitaLogo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NotificationsBell } from "@/components/NotificationsBell";
+import { CompanySwitcher } from "@/components/CompanySwitcher";
+import { useAuthContext } from "@/context/AuthContext";
 
 // Navbar superior fixa: controla o menu, o tema e (no contexto empresa) mostra
-// o nome da empresa e o botão de sair dela.
+// o nome da empresa e o botão de sair dela. Com 2+ empresas, o nome vira um
+// seletor de troca rápida.
 export function Topbar({
   menuOpen,
   onToggleMenu,
@@ -17,6 +20,10 @@ export function Topbar({
   companyName?: string | null;
   onExitCompany?: () => void;
 }) {
+  const { user } = useAuthContext();
+  const multiCompany = (user?.memberships?.length ?? 0) >= 2;
+  const inCompany = !!companyName;
+
   return (
     <header
       className="fixed top-0 inset-x-0 z-40 h-14 flex items-center justify-between px-3 sm:px-4 border-b"
@@ -33,10 +40,14 @@ export function Topbar({
           {menuOpen ? "✕" : "☰"}
         </button>
         <OrbitaLogo size={24} showWordmark={!companyName} />
-        {companyName && (
+        {inCompany && (
           <div className="flex items-center gap-2 min-w-0">
             <span style={{ color: "var(--text-muted)" }}>›</span>
-            <span className="font-display font-bold truncate">{companyName}</span>
+            {multiCompany ? (
+              <CompanySwitcher />
+            ) : (
+              <span className="font-display font-bold truncate">{companyName}</span>
+            )}
           </div>
         )}
       </div>

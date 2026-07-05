@@ -1,13 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { withRoute } from "@/lib/http";
 
 // Endpoint PÚBLICO (sem auth): resolve um slug de empresa para exibir a
 // identidade dela na tela de login específica (/[slug]).
 // Retorna apenas dados não-sensíveis.
-export async function GET(
-  _req: Request,
+export const GET = withRoute(async (
+  _req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
-) {
+) => {
   const { slug } = await params;
 
   const establishment = await prisma.establishment.findUnique({
@@ -29,4 +30,4 @@ export async function GET(
       slug: establishment.slug,
     },
   });
-}
+});

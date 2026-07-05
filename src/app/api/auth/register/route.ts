@@ -3,29 +3,23 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { signToken } from "@/lib/jwt";
-import { jsonError } from "@/lib/auth";
+import { issueRefreshToken } from "@/lib/refreshTokens";
+import { jsonError, zodError } from "@/lib/auth";
+import { withRoute } from "@/lib/http";
+import { uniqueEstablishmentSlug } from "@/lib/slug";
 
 // Onboarding do DONO: cria o usuário, a empresa (tenant) e o vínculo ADMIN.
 const schema = z.object({
-  name: z.string().min(2),
-  email: z.string().email(),
-  password: z.string().min(6),
-  establishmentName: z.string().min(2),
+  name: z.string().min(2, "O nome deve ter ao menos 2 caracteres"),
+  email: z.string().email("E-mail inválido"),
+  password: z.string().min(6, "A senha deve ter ao menos 6 caracteres"),
+  establishmentName: z.string().min(2, "O nome da empresa deve ter ao menos 2 caracteres"),
 });
 
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "") // remove acentos
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-export async function POST(req: NextRequest) {
+export const POST = withRoute(async (req: NextRequest) => {
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
-  if (!parsed.success) return jsonError("Dados inválidos", 400);
+  if (!parsed.success) return zodError(parsed.error);
 
   const { name, email, password, establishmentName } = parsed.data;
 
@@ -35,12 +29,7 @@ export async function POST(req: NextRequest) {
   const hashed = await bcrypt.hash(password, 10);
 
   // Slug único para a empresa.
-  const base = slugify(establishmentName) || "empresa";
-  let slug = base;
-  let n = 1;
-  while (await prisma.establishment.findUnique({ where: { slug } })) {
-    slug = `${base}-${++n}`;
-  }
+  const slug = await uniqueEstablishmentSlug(establishmentName);
 
   const user = await prisma.user.create({
     data: { name, email, password: hashed, role: "USER" },
@@ -59,10 +48,12 @@ export async function POST(req: NextRequest) {
   });
 
   const token = signToken({ userId: user.id, role: user.role, name: user.name });
+  const refreshToken = await issueRefreshToken(user.id);
 
   return NextResponse.json({
     token,
+    refreshToken,
     user: { id: user.id, name: user.name, email: user.email, role: user.role },
     establishment: { id: establishment.id, name: establishment.name, slug: establishment.slug },
   });
-}
+});

@@ -2,8 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { useAuthContext } from "@/context/AuthContext";
-import { ChangePasswordForm } from "@/components/ChangePasswordForm";
+import { navigateToView } from "@/lib/navigation";
 import api from "@/lib/api";
+
+// Funcionalidades base da empresa, para os cards de acesso rápido no dashboard.
+const QUICK_FEATURES: { view: string; label: string; icon: string; desc: string }[] = [
+  { view: "config-empresa", label: "Empresa", icon: "🏢", desc: "Dados cadastrais da empresa" },
+  { view: "usuarios", label: "Usuários", icon: "👥", desc: "Equipe e permissões" },
+  { view: "cargos", label: "Cargos", icon: "🛡️", desc: "Cargos e suas permissões" },
+];
 
 export function DashboardView({ companyMode = false }: { companyMode?: boolean }) {
   const { user, activeEstablishmentId, setActiveEstablishment } = useAuthContext();
@@ -89,6 +96,66 @@ export function DashboardView({ companyMode = false }: { companyMode?: boolean }
         </p>
       ) : null}
 
+      {/* Acesso rápido às funcionalidades base (dentro de uma empresa) */}
+      {companyMode && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+            Acesso rápido
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {QUICK_FEATURES.map((f) => (
+              <button
+                key={f.view}
+                onClick={() => navigateToView({ view: f.view })}
+                className="text-left orbita-card p-4 transition hover:border-[var(--accent)]"
+              >
+                <div className="text-2xl" aria-hidden>
+                  {f.icon}
+                </div>
+                <div className="font-medium mt-2">{f.label}</div>
+                <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                  {f.desc}
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Trocar de empresa: outras empresas do usuário (dentro de uma empresa) */}
+      {companyMode && (() => {
+        const others = user.memberships.filter((m) => m.establishment.id !== activeEstablishmentId);
+        if (others.length === 0) return null;
+        return (
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              Trocar de empresa
+            </h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {others.map((m) => (
+                <button
+                  key={m.establishment.id}
+                  onClick={() => {
+                    setActiveEstablishment(m.establishment.id);
+                    window.location.href = `/${m.establishment.slug}/dashboard`;
+                  }}
+                  className="text-left orbita-card p-4 transition hover:border-[var(--accent)]"
+                >
+                  <div className="flex items-center gap-2">
+                    <span aria-hidden>🏢</span>
+                    <span className="font-medium truncate">{m.establishment.name}</span>
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                    {m.role === "ADMIN" ? "Você é o dono" : m.customRole?.name ?? "Funcionário"}
+                  </div>
+                  <div className="text-xs mt-2 text-[var(--accent)]">Entrar →</div>
+                </button>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
+
       {/* Empresas do usuário (não super admin, só no contexto plataforma) */}
       {!isSuperAdmin && !companyMode && (
         <section className="space-y-3">
@@ -133,8 +200,6 @@ export function DashboardView({ companyMode = false }: { companyMode?: boolean }
           )}
         </section>
       )}
-
-      <ChangePasswordForm />
     </div>
   );
 }

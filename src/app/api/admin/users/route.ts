@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, jsonError } from "@/lib/auth";
+import { withRoute } from "@/lib/http";
 
 // Lista usuários da plataforma (apenas SUPER_ADMIN).
-export async function GET(req: NextRequest) {
+export const GET = withRoute(async (req: NextRequest) => {
   const { user, response } = requireAuth(req);
   if (response) return response;
   if (user.role !== "SUPER_ADMIN") return jsonError("Acesso restrito", 403);
@@ -24,4 +25,4 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({ users });
-}
+});

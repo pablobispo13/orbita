@@ -1,4 +1,4 @@
-import jwt from "jsonwebtoken";
+import jwt, { type SignOptions } from "jsonwebtoken";
 import type { SystemRole } from "@prisma/client";
 
 export type JwtPayload = {
@@ -7,7 +7,9 @@ export type JwtPayload = {
   name: string;
 };
 
-const EXPIRES_IN = "7d";
+// Access token curto — a sessão longa vem do refresh token (ver src/lib/refreshTokens.ts).
+const EXPIRES_IN = (process.env.ACCESS_TOKEN_TTL ||
+  "1h") as SignOptions["expiresIn"];
 
 export function signToken(payload: JwtPayload): string {
   return jwt.sign(payload, process.env.JWT_SECRET!, { expiresIn: EXPIRES_IN });

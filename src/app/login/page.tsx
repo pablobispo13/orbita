@@ -28,6 +28,7 @@ export default function LoginPage() {
     try {
       const { data } = await api.post("/auth/login", { email, password });
       localStorage.setItem("token", data.token);
+      if (data.refreshToken) localStorage.setItem("refreshToken", data.refreshToken);
 
       if (data.user?.mustChangePassword) {
         window.location.href = "/trocar-senha";

@@ -55,8 +55,14 @@ export default function EstablishmentLoginPage() {
 
   // Entra na empresa: grava a empresa ativa e vai pro dashboard
   // (ou para a troca obrigatória de senha, se pendente).
-  function enter(establishmentId: string, token?: string, mustChange?: boolean) {
+  function enter(
+    establishmentId: string,
+    token?: string,
+    mustChange?: boolean,
+    refreshToken?: string
+  ) {
     if (token) localStorage.setItem("token", token);
+    if (refreshToken) localStorage.setItem("refreshToken", refreshToken);
     localStorage.setItem("activeEstablishmentId", establishmentId);
     window.location.href = mustChange ? "/trocar-senha" : `/${slug}/dashboard`;
   }
@@ -129,7 +135,12 @@ export default function EstablishmentLoginPage() {
         return;
       }
 
-      enter(targetEstablishmentId, data.token, data.user?.mustChangePassword);
+      enter(
+        targetEstablishmentId,
+        data.token,
+        data.user?.mustChangePassword,
+        data.refreshToken
+      );
     } finally {
       setLoading(false);
     }

@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requirePermission, jsonError } from "@/lib/auth";
+import { requirePermission, jsonError, zodError } from "@/lib/auth";
+import { withRoute } from "@/lib/http";
 import { PERMISSIONS, ALL_PERMISSIONS } from "@/lib/permissions";
 
+type Ctx = { params: Promise<{ id: string }> };
+
 const updateSchema = z.object({
-  name: z.string().min(2).optional(),
+  name: z.string().min(2, "O nome do cargo deve ter ao menos 2 caracteres").optional(),
   description: z.string().nullable().optional(),
   permissions: z.array(z.enum(ALL_PERMISSIONS as [string, ...string[]])).optional(),
 });
@@ -18,10 +21,7 @@ async function findScopedRole(id: string, establishmentId: string) {
 }
 
 // Atualiza um cargo (nome, descrição, permissões) da empresa ativa.
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const PUT = withRoute(async (req: NextRequest, { params }: Ctx) => {
   const { ctx, response } = await requirePermission(req, PERMISSIONS.ROLE_MANAGE);
   if (response) return response;
 
@@ -31,7 +31,7 @@ export async function PUT(
 
   const body = await req.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
-  if (!parsed.success) return jsonError("Dados inválidos", 400);
+  if (!parsed.success) return zodError(parsed.error);
 
   try {
     const updated = await prisma.role.update({
@@ -47,13 +47,10 @@ export async function PUT(
     // Colisão com o @@unique([establishmentId, name]).
     return jsonError("Já existe um cargo com esse nome", 409);
   }
-}
+});
 
 // Remove um cargo da empresa ativa. Bloqueia se houver funcionários vinculados.
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const DELETE = withRoute(async (req: NextRequest, { params }: Ctx) => {
   const { ctx, response } = await requirePermission(req, PERMISSIONS.ROLE_MANAGE);
   if (response) return response;
 
@@ -71,4 +68,4 @@ export async function DELETE(
 
   await prisma.role.delete({ where: { id } });
   return NextResponse.json({ ok: true });
-}
+});

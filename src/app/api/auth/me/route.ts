@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import { withRoute } from "@/lib/http";
 
-export async function GET(req: NextRequest) {
+export const GET = withRoute(async (req: NextRequest) => {
   const auth = requireAuth(req);
   if (auth.response) return auth.response;
 
@@ -28,4 +29,4 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ message: "Usuário não encontrado" }, { status: 401 });
 
   return NextResponse.json({ user });
-}
+});

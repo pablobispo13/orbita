@@ -3,15 +3,16 @@ import { randomBytes } from "crypto";
 import bcrypt from "bcrypt";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, jsonError } from "@/lib/auth";
+import { withRoute } from "@/lib/http";
 import { PERMISSIONS } from "@/lib/permissions";
 
 // Reset de senha de um FUNCIONÁRIO pelo dono/gestor da empresa (member:manage).
 // `id` é o userId do membro. Gera senha temporária, marca mustChangePassword=true
 // e a retorna uma vez para repasse. Não se aplica ao Dono (ADMIN) da empresa.
-export async function POST(
+export const POST = withRoute(async (
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { ctx, response } = await requirePermission(req, PERMISSIONS.MEMBER_MANAGE);
   if (response) return response;
 
@@ -40,4 +41,4 @@ export async function POST(
     email: membership.user.email,
     generatedPassword,
   });
-}
+});

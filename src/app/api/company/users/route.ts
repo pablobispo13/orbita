@@ -3,12 +3,13 @@ import { randomBytes } from "crypto";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireEstablishment, requirePermission, jsonError } from "@/lib/auth";
+import { requireEstablishment, requirePermission, jsonError, zodError } from "@/lib/auth";
+import { withRoute } from "@/lib/http";
 import { PERMISSIONS } from "@/lib/permissions";
 
 // Lista os usuários (membros) da EMPRESA ativa — escopo via x-establishment-id.
 // Qualquer membro com acesso à empresa pode ver a equipe.
-export async function GET(req: NextRequest) {
+export const GET = withRoute(async (req: NextRequest) => {
   const { ctx, response } = await requireEstablishment(req);
   if (response) return response;
 
@@ -35,11 +36,11 @@ export async function GET(req: NextRequest) {
   }));
 
   return NextResponse.json({ users });
-}
+});
 
 const createSchema = z.object({
-  name: z.string().min(2),
-  email: z.string().email(),
+  name: z.string().min(2, "O nome deve ter ao menos 2 caracteres"),
+  email: z.string().email("E-mail inválido"),
   // Cargo (Role) opcional atribuído ao membro. Deve pertencer à empresa.
   customRoleId: z.string().nullable().optional(),
 });
@@ -47,13 +48,13 @@ const createSchema = z.object({
 // Adiciona um membro (funcionário) à empresa ativa. Exige MEMBER_MANAGE.
 // Se o e-mail já existir, apenas cria o vínculo; senão cria o usuário com uma
 // senha temporária (retornada uma vez) e mustChangePassword=true.
-export async function POST(req: NextRequest) {
+export const POST = withRoute(async (req: NextRequest) => {
   const { ctx, response } = await requirePermission(req, PERMISSIONS.MEMBER_MANAGE);
   if (response) return response;
 
   const body = await req.json().catch(() => null);
   const parsed = createSchema.safeParse(body);
-  if (!parsed.success) return jsonError("Dados inválidos", 400);
+  if (!parsed.success) return zodError(parsed.error);
 
   const { name, email, customRoleId } = parsed.data;
 
@@ -121,4 +122,4 @@ export async function POST(req: NextRequest) {
     },
     { status: 201 }
   );
-}
+});

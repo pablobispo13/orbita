@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
-import api from "@/lib/api";
+import api, { apiErrorMessage } from "@/lib/api";
 import { Modal } from "@/components/Modal";
 import {
   DataTable,
@@ -67,6 +67,7 @@ export function CargosView({ companyName }: { companyName?: string | null }) {
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Modal de detalhes (somente leitura). __owner__ => cargo Dono.
   const [detail, setDetail] = useState<Role | null>(null);
@@ -131,6 +132,7 @@ export function CargosView({ companyName }: { companyName?: string | null }) {
 
   function openCreate() {
     setForm({ ...emptyForm, permissions: new Set() });
+    setFormError(null);
     setFormOpen(true);
   }
 
@@ -141,6 +143,7 @@ export function CargosView({ companyName }: { companyName?: string | null }) {
       description: role.description ?? "",
       permissions: new Set(role.permissions),
     });
+    setFormError(null);
     setFormOpen(true);
   }
 
@@ -164,24 +167,26 @@ export function CargosView({ companyName }: { companyName?: string | null }) {
   async function submit() {
     if (!valid) return;
     setSaving(true);
+    setFormError(null);
     const payload = {
       name: form.name.trim(),
       description: form.description.trim() || undefined,
       permissions: Array.from(form.permissions),
     };
     try {
+      // `silent`: tratamos o motivo do erro inline na modal (sem toast duplicado).
       if (editing) {
-        await api.put(`/roles/${form.id}`, payload);
+        await api.put(`/roles/${form.id}`, payload, { silent: true });
         toast.success("Cargo atualizado.");
       } else {
-        await api.post("/roles", payload);
+        await api.post("/roles", payload, { silent: true });
         toast.success("Cargo criado.");
       }
       setFormOpen(false);
       setForm(emptyForm);
       await load();
-    } catch {
-      /* toast global cuida do erro */
+    } catch (err) {
+      setFormError(apiErrorMessage(err, "Não foi possível salvar o cargo."));
     } finally {
       setSaving(false);
     }
@@ -487,6 +492,15 @@ export function CargosView({ companyName }: { companyName?: string | null }) {
             })}
           </div>
         </div>
+
+        {formError && (
+          <div
+            className="rounded-lg px-3 py-2 text-sm"
+            style={{ background: "rgba(248,113,113,0.12)", color: "var(--danger)" }}
+          >
+            {formError}
+          </div>
+        )}
 
         <div className="flex items-center gap-3 pt-2">
           <button

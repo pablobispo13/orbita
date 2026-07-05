@@ -1,19 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, jsonError } from "@/lib/auth";
+import { requireAuth, jsonError, zodError } from "@/lib/auth";
+import { withRoute } from "@/lib/http";
 import { notify, NOTIFICATION_TYPES, NOTIFICATION_STATUS } from "@/lib/notifications";
 import { sendPushToUser } from "@/lib/push";
 
 const schema = z.object({
-  userId: z.string(),
-  title: z.string().min(2),
-  message: z.string().min(1),
+  userId: z.string().min(1, "Selecione um usuário"),
+  title: z.string().min(2, "O título deve ter ao menos 2 caracteres"),
+  message: z.string().min(1, "A mensagem não pode ficar vazia"),
 });
 
 // SUPER_ADMIN dispara uma notificação de plataforma para qualquer usuário do
 // sistema. Persiste in-app (aparece no sino do usuário) e envia por push.
-export async function POST(req: NextRequest) {
+export const POST = withRoute(async (req: NextRequest) => {
   const { user, response } = requireAuth(req);
   if (response) return response;
   if (user.role !== "SUPER_ADMIN") return jsonError("Acesso restrito", 403);
@@ -44,4 +45,4 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ ok: true }, { status: 201 });
-}
+});

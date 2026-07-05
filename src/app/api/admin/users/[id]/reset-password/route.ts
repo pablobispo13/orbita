@@ -3,14 +3,15 @@ import { randomBytes } from "crypto";
 import bcrypt from "bcrypt";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, jsonError } from "@/lib/auth";
+import { withRoute } from "@/lib/http";
 
 // Reset de senha de um usuário pelo SUPER_ADMIN.
 // Gera uma senha aleatória, marca mustChangePassword=true e retorna a senha
 // UMA vez para o super admin repassar ao usuário (que será obrigado a trocá-la).
-export async function POST(
+export const POST = withRoute(async (
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
   const { user, response } = requireAuth(req);
   if (response) return response;
   if (user.role !== "SUPER_ADMIN") return jsonError("Acesso restrito", 403);
@@ -34,4 +35,4 @@ export async function POST(
     email: target.email,
     generatedPassword: generated,
   });
-}
+});

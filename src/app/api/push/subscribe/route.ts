@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, jsonError } from "@/lib/auth";
+import { withRoute } from "@/lib/http";
 
 const schema = z.object({
   endpoint: z.string().url(),
@@ -9,7 +10,7 @@ const schema = z.object({
 });
 
 // Registra uma assinatura Web Push do dispositivo atual para o usuário logado.
-export async function POST(req: NextRequest) {
+export const POST = withRoute(async (req: NextRequest) => {
   const { user, response } = requireAuth(req);
   if (response) return response;
 
@@ -26,10 +27,10 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ ok: true }, { status: 201 });
-}
+});
 
 // Remove a assinatura do dispositivo (ao desativar as notificações).
-export async function DELETE(req: NextRequest) {
+export const DELETE = withRoute(async (req: NextRequest) => {
   const { response } = requireAuth(req);
   if (response) return response;
 
@@ -39,4 +40,4 @@ export async function DELETE(req: NextRequest) {
 
   await prisma.pushSubscription.deleteMany({ where: { endpoint } });
   return NextResponse.json({ ok: true });
-}
+});
