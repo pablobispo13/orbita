@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { signToken } from "@/lib/jwt";
-import { issueRefreshToken } from "@/lib/refreshTokens";
-import { jsonError, zodError } from "@/lib/auth";
+import { requireAuth, jsonError, zodError } from "@/lib/auth";
 import { withRoute } from "@/lib/http";
 import { uniqueEstablishmentSlug } from "@/lib/slug";
 
-// Onboarding do DONO: cria o usuário, a empresa (tenant) e o vínculo ADMIN.
+// Onboarding de um DONO + empresa. Apenas o SUPER_ADMIN pode criar tenants
+// (mesma política do CP1.3); não é auto-cadastro público. O dono definido aqui
+// entra com a senha informada e faz login normalmente depois.
 const schema = z.object({
   name: z.string().min(2, "O nome deve ter ao menos 2 caracteres"),
   email: z.string().email("E-mail inválido"),
@@ -17,6 +17,13 @@ const schema = z.object({
 });
 
 export const POST = withRoute(async (req: NextRequest) => {
+  // Só o SUPER_ADMIN pode registrar novos donos/empresas.
+  const auth = requireAuth(req);
+  if (auth.response) return auth.response;
+  if (auth.user.role !== "SUPER_ADMIN") {
+    return jsonError("Apenas o super admin pode criar empresas.", 403);
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) return zodError(parsed.error);
@@ -31,29 +38,25 @@ export const POST = withRoute(async (req: NextRequest) => {
   // Slug único para a empresa.
   const slug = await uniqueEstablishmentSlug(establishmentName);
 
-  const user = await prisma.user.create({
-    data: { name, email, password: hashed, role: "USER" },
+  // User + Establishment + Membership de forma atômica (evita registros órfãos).
+  const establishment = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.create({
+      data: { name, email, password: hashed, role: "USER" },
+    });
+    const est = await tx.establishment.create({
+      data: { name: establishmentName, slug, ownerId: user.id },
+    });
+    await tx.membership.create({
+      data: { userId: user.id, establishmentId: est.id, role: "ADMIN" },
+    });
+    return est;
   });
 
-  const establishment = await prisma.establishment.create({
-    data: { name: establishmentName, slug, ownerId: user.id },
-  });
-
-  await prisma.membership.create({
-    data: {
-      userId: user.id,
-      establishmentId: establishment.id,
-      role: "ADMIN",
+  return NextResponse.json(
+    {
+      user: { name, email },
+      establishment: { id: establishment.id, name: establishment.name, slug: establishment.slug },
     },
-  });
-
-  const token = signToken({ userId: user.id, role: user.role, name: user.name });
-  const refreshToken = await issueRefreshToken(user.id);
-
-  return NextResponse.json({
-    token,
-    refreshToken,
-    user: { id: user.id, name: user.name, email: user.email, role: user.role },
-    establishment: { id: establishment.id, name: establishment.name, slug: establishment.slug },
-  });
+    { status: 201 }
+  );
 });

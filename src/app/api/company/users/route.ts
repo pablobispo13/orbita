@@ -6,15 +6,18 @@ import { prisma } from "@/lib/prisma";
 import { requireEstablishment, requirePermission, jsonError, zodError } from "@/lib/auth";
 import { withRoute } from "@/lib/http";
 import { PERMISSIONS } from "@/lib/permissions";
+import { parsePagination, pageMeta } from "@/lib/pagination";
 
 // Lista os usuários (membros) da EMPRESA ativa — escopo via x-establishment-id.
-// Qualquer membro com acesso à empresa pode ver a equipe.
+// Qualquer membro com acesso à empresa pode ver a equipe. Paginação opt-in.
 export const GET = withRoute(async (req: NextRequest) => {
   const { ctx, response } = await requireEstablishment(req);
   if (response) return response;
 
+  const where = { establishmentId: ctx.establishmentId };
+  const pg = parsePagination(req);
   const memberships = await prisma.membership.findMany({
-    where: { establishmentId: ctx.establishmentId },
+    where,
     orderBy: { createdAt: "asc" },
     select: {
       role: true,
@@ -23,6 +26,7 @@ export const GET = withRoute(async (req: NextRequest) => {
       },
       customRole: { select: { name: true } },
     },
+    ...(pg ? { skip: pg.skip, take: pg.take } : {}),
   });
 
   const users = memberships.map((m) => ({
@@ -35,6 +39,10 @@ export const GET = withRoute(async (req: NextRequest) => {
     roleName: m.customRole?.name ?? null,
   }));
 
+  if (pg) {
+    const total = await prisma.membership.count({ where });
+    return NextResponse.json({ users, pagination: pageMeta(pg, total) });
+  }
   return NextResponse.json({ users });
 });
 

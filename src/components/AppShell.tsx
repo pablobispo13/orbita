@@ -12,18 +12,60 @@ import { UsuariosView } from "@/components/views/UsuariosView";
 import { CompanyUsersView } from "@/components/views/CompanyUsersView";
 import { CargosView } from "@/components/views/CargosView";
 import { ConfiguracoesEmpresaView } from "@/components/views/ConfiguracoesEmpresaView";
+import { ModulosView } from "@/components/views/ModulosView";
+import { ProdutosView } from "@/components/views/ProdutosView";
+import { CategoriasView } from "@/components/views/CategoriasView";
+import { EstoqueView } from "@/components/views/EstoqueView";
+import { FinanceiroView } from "@/components/views/FinanceiroView";
+import { GastosFixosView } from "@/components/views/GastosFixosView";
+import { SimulacaoView } from "@/components/views/SimulacaoView";
+import { RelatoriosView } from "@/components/views/RelatoriosView";
+import { ComandaView } from "@/components/views/ComandaView";
+import { CozinhaView } from "@/components/views/CozinhaView";
 import { SegurancaView } from "@/components/views/SegurancaView";
 import { APP_NAME, APP_TAGLINE } from "@/lib/brand";
 import { onNavigate } from "@/lib/navigation";
+import type { ModuleKey } from "@/lib/modules";
+import { ConfirmProvider } from "@/components/ConfirmProvider";
+import { applyCompanyTheme, clearCompanyTheme } from "@/lib/theme";
+import { type CompanySettings } from "@/lib/settings";
+
+// Todas as chaves de view válidas (persistência do localStorage + navegação
+// por notificação validam contra esta lista única).
+const VALID_VIEWS: ViewKey[] = [
+  "dashboard",
+  "empresas",
+  "minhas-empresas",
+  "config-empresa",
+  "usuarios",
+  "cargos",
+  "modulos",
+  "produtos",
+  "categorias",
+  "estoque",
+  "financeiro",
+  "gastos-fixos",
+  "simulacao",
+  "relatorios",
+  "comanda",
+  "cozinha",
+  "seguranca",
+];
+
+function isViewKey(v: string | null): v is ViewKey {
+  return !!v && (VALID_VIEWS as string[]).includes(v);
+}
 
 // Shell autenticado. Duas modalidades:
 //  - platform (/dashboard): gestão da plataforma (super admin).
 //  - company (/{slug}/dashboard): operação de uma empresa específica.
 export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
-  const { user, loading, setActiveEstablishment } = useAuthContext();
+  const { user, loading, activeEstablishmentId, setActiveEstablishment } = useAuthContext();
   const [mounted, setMounted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(true);
   const [view, setView] = useState<ViewKey>("dashboard");
+  // Módulos ativos da empresa em contexto (null = ainda não carregado).
+  const [enabledModules, setEnabledModules] = useState<ModuleKey[] | null>(null);
 
   // Contexto empresa: nome resolvido + estado de resolução.
   const [companyName, setCompanyName] = useState<string | null>(null);
@@ -40,17 +82,7 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
     else setMenuOpen(window.matchMedia("(min-width: 768px)").matches);
 
     const storedView = localStorage.getItem("active_view");
-    if (
-      storedView === "dashboard" ||
-      storedView === "empresas" ||
-      storedView === "minhas-empresas" ||
-      storedView === "config-empresa" ||
-      storedView === "usuarios" ||
-      storedView === "cargos" ||
-      storedView === "seguranca"
-    ) {
-      setView(storedView);
-    }
+    if (isViewKey(storedView)) setView(storedView);
   }, []);
 
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
@@ -127,6 +159,55 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
     }
   }, [mode, companyName]);
 
+  // Carrega os módulos ativos da empresa (contexto company) para filtrar o menu.
+  useEffect(() => {
+    if (mode !== "company" || !activeEstablishmentId) {
+      setEnabledModules(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<{ modules: ModuleKey[] }>("/company/modules", { silent: true })
+      .then(({ data }) => {
+        if (!cancelled) setEnabledModules(data.modules);
+      })
+      .catch(() => {
+        if (!cancelled) setEnabledModules(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, activeEstablishmentId]);
+
+  // Configurações da empresa (Fase 6): tema + estrutura de menu. Recarrega ao
+  // trocar de empresa e quando a tela de configurações salva ("orbita:settings").
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
+  const [settingsNonce, setSettingsNonce] = useState(0);
+  useEffect(() => {
+    const bump = () => setSettingsNonce((n) => n + 1);
+    window.addEventListener("orbita:settings", bump);
+    return () => window.removeEventListener("orbita:settings", bump);
+  }, []);
+  useEffect(() => {
+    if (mode !== "company" || !activeEstablishmentId) {
+      clearCompanyTheme();
+      setCompanySettings(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<{ settings: CompanySettings }>("/company/settings", { silent: true })
+      .then(({ data }) => {
+        if (cancelled) return;
+        setCompanySettings(data.settings);
+        applyCompanyTheme(data.settings);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, activeEstablishmentId, settingsNonce]);
+
   function setMenu(v: boolean) {
     setMenuOpen(v);
     localStorage.setItem("menu_open", v ? "1" : "0");
@@ -140,17 +221,7 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
   // Ações vindas de notificações: troca de aba (+ foco num usuário, se houver).
   useEffect(() => {
     return onNavigate(({ view: v, userId }) => {
-      if (
-        v === "dashboard" ||
-        v === "empresas" ||
-        v === "minhas-empresas" ||
-        v === "config-empresa" ||
-        v === "usuarios" ||
-        v === "cargos" ||
-        v === "seguranca"
-      ) {
-        selectView(v);
-      }
+      if (isViewKey(v)) selectView(v);
       if (userId) setFocus({ userId, nonce: Date.now() });
     });
   }, []);
@@ -171,7 +242,7 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
   }
 
   const multiCompany = !isSuperAdmin && (user?.memberships?.length ?? 0) >= 2;
-  const allowed = viewsForMode(mode, !!isSuperAdmin, multiCompany);
+  const allowed = viewsForMode(mode, !!isSuperAdmin, multiCompany, enabledModules);
   const effectiveView: ViewKey = allowed.includes(view) ? view : "dashboard";
 
   const ready =
@@ -186,6 +257,7 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
       : undefined;
 
   return (
+    <ConfirmProvider>
     <div className="min-h-screen">
       <Topbar
         menuOpen={menuOpen}
@@ -204,6 +276,8 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
             onEnterCompany={enterCompany}
             onLogout={companyLogout}
             onClose={() => setMenu(false)}
+            enabledModules={enabledModules}
+            navigation={companySettings?.navigation ?? null}
           />
         ) : (
           menuOpen && (
@@ -230,6 +304,26 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
               <CargosView companyName={companyName} />
             ) : effectiveView === "config-empresa" ? (
               <ConfiguracoesEmpresaView companyName={companyName} />
+            ) : effectiveView === "modulos" ? (
+              <ModulosView companyName={companyName} />
+            ) : effectiveView === "produtos" ? (
+              <ProdutosView companyName={companyName} />
+            ) : effectiveView === "categorias" ? (
+              <CategoriasView companyName={companyName} />
+            ) : effectiveView === "estoque" ? (
+              <EstoqueView companyName={companyName} />
+            ) : effectiveView === "financeiro" ? (
+              <FinanceiroView companyName={companyName} />
+            ) : effectiveView === "gastos-fixos" ? (
+              <GastosFixosView companyName={companyName} />
+            ) : effectiveView === "simulacao" ? (
+              <SimulacaoView companyName={companyName} />
+            ) : effectiveView === "relatorios" ? (
+              <RelatoriosView companyName={companyName} />
+            ) : effectiveView === "comanda" ? (
+              <ComandaView companyName={companyName} />
+            ) : effectiveView === "cozinha" ? (
+              <CozinhaView companyName={companyName} />
             ) : effectiveView === "seguranca" ? (
               <SegurancaView />
             ) : (
@@ -264,5 +358,6 @@ export function AppShell({ mode, slug }: { mode: ShellMode; slug?: string }) {
         </button>
       )}
     </div>
+    </ConfirmProvider>
   );
 }

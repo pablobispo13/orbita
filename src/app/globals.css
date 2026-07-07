@@ -28,6 +28,16 @@
   --success: #34d399;
   --warning: #fbbf24;
   --danger: #f87171;
+
+  /* Forma / densidade — personalizável por empresa (Fase 6). Padrões abaixo
+     preservam a aparência atual; overrides vêm de src/lib/settings.ts. */
+  --radius-card: 1rem;
+  --radius-control: 0.75rem;
+}
+
+/* Escala tipográfica global (densidade). Padrão 1 = sem alteração. */
+html {
+  font-size: calc(100% * var(--font-scale, 1));
 }
 
 /* ------------------------------------------------------------------ */
@@ -65,10 +75,19 @@ body {
   overflow-x: hidden;
   color: var(--text);
   font-family: var(--font-body), system-ui, -apple-system, sans-serif;
-  /* fundo espacial: leve brilho da "órbita" no topo */
+  /* fundo espacial: leve brilho da "órbita" no topo. O glow segue a COR DA
+     MARCA (via color-mix) — personalizar --brand muda o brilho junto. */
   background:
-    radial-gradient(1200px 600px at 50% -10%, rgba(124, 58, 237, 0.22), transparent 60%),
-    radial-gradient(900px 500px at 85% 10%, rgba(168, 85, 247, 0.12), transparent 55%),
+    radial-gradient(
+      1200px 600px at 50% -10%,
+      color-mix(in srgb, var(--brand) 22%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 500px at 85% 10%,
+      color-mix(in srgb, var(--accent) 12%, transparent),
+      transparent 55%
+    ),
     var(--bg);
   background-attachment: fixed;
 }
@@ -76,8 +95,16 @@ body {
 /* Glows mais suaves no tema claro */
 :root[data-theme="light"] body {
   background:
-    radial-gradient(1200px 600px at 50% -10%, rgba(109, 40, 217, 0.08), transparent 60%),
-    radial-gradient(900px 500px at 85% 10%, rgba(8, 145, 178, 0.06), transparent 55%),
+    radial-gradient(
+      1200px 600px at 50% -10%,
+      color-mix(in srgb, var(--brand) 8%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 500px at 85% 10%,
+      color-mix(in srgb, var(--accent) 6%, transparent),
+      transparent 55%
+    ),
     var(--bg);
 }
 
@@ -124,13 +151,13 @@ h3,
 .orbita-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 1rem;
+  border-radius: var(--radius-card);
 }
 
 .orbita-btn {
   background: linear-gradient(135deg, var(--brand-hover), var(--brand));
   color: #fff;
-  border-radius: 0.75rem;
+  border-radius: var(--radius-control);
   font-weight: 600;
   transition: filter 0.15s ease, transform 0.05s ease;
 }
@@ -150,7 +177,7 @@ h3,
   background: transparent;
   color: var(--text);
   border: 1px solid var(--border-strong);
-  border-radius: 0.75rem;
+  border-radius: var(--radius-control);
   font-weight: 600;
   transition: background 0.15s ease, transform 0.05s ease;
 }
@@ -169,7 +196,7 @@ h3,
 .orbita-btn-danger {
   background: var(--danger);
   color: #fff;
-  border-radius: 0.75rem;
+  border-radius: var(--radius-control);
   font-weight: 600;
   transition: filter 0.15s ease, transform 0.05s ease;
 }
@@ -187,7 +214,7 @@ h3,
 .orbita-input {
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 0.75rem;
+  border-radius: var(--radius-control);
   color: var(--text);
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;

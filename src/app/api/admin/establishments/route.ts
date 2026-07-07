@@ -6,13 +6,16 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, jsonError, zodError } from "@/lib/auth";
 import { withRoute } from "@/lib/http";
 import { uniqueEstablishmentSlug } from "@/lib/slug";
+import { parsePagination, pageMeta } from "@/lib/pagination";
 
 // Rota exclusiva do SUPER_ADMIN: enxerga TODAS as empresas da plataforma.
+// Paginação opt-in via `?page=&pageSize=`.
 export const GET = withRoute(async (req: NextRequest) => {
   const { user, response } = requireAuth(req);
   if (response) return response;
   if (user.role !== "SUPER_ADMIN") return jsonError("Acesso restrito", 403);
 
+  const pg = parsePagination(req);
   const establishments = await prisma.establishment.findMany({
     orderBy: { createdAt: "desc" },
     include: {
@@ -24,14 +27,19 @@ export const GET = withRoute(async (req: NextRequest) => {
       },
       _count: { select: { memberships: true, products: true, stockItems: true } },
     },
+    ...(pg ? { skip: pg.skip, take: pg.take } : {}),
   });
 
-  return NextResponse.json({
-    establishments: establishments.map((e) => ({
-      ...e,
-      owners: e.memberships.map((m) => m.user),
-    })),
-  });
+  const mapped = establishments.map((e) => ({
+    ...e,
+    owners: e.memberships.map((m) => m.user),
+  }));
+
+  if (pg) {
+    const total = await prisma.establishment.count();
+    return NextResponse.json({ establishments: mapped, pagination: pageMeta(pg, total) });
+  }
+  return NextResponse.json({ establishments: mapped });
 });
 
 // Criação de empresa pelo SUPER_ADMIN. O dono é definido de duas formas:
@@ -65,11 +73,11 @@ export const POST = withRoute(async (req: NextRequest) => {
 
   const { name, ownerId, ownerEmail, ownerName, document, phone, address } = parsed.data;
 
-  // Resolve o dono (id do usuário) — sem transação interativa, para funcionar
-  // também em MongoDB standalone (mesmo padrão do register).
-  let resolvedOwnerId: string;
+  // Resolve o dono ANTES da transação (leituras + geração de senha).
+  let resolvedOwnerId: string | null = null;
   let ownerCreated = false;
   let generatedPassword: string | null = null;
+  let newOwnerData: { name: string; email: string; password: string } | null = null;
 
   if (ownerId) {
     const owner = await prisma.user.findUnique({ where: { id: ownerId } });
@@ -82,36 +90,39 @@ export const POST = withRoute(async (req: NextRequest) => {
       resolvedOwnerId = existing.id;
     } else {
       generatedPassword = randomBytes(8).toString("base64url");
-      const hashed = await bcrypt.hash(generatedPassword, 10);
-      const created = await prisma.user.create({
-        data: {
-          name: ownerName?.trim() || email.split("@")[0],
-          email,
-          password: hashed,
-          role: "USER",
-          mustChangePassword: true,
-        },
-      });
-      resolvedOwnerId = created.id;
+      newOwnerData = {
+        name: ownerName?.trim() || email.split("@")[0],
+        email,
+        password: await bcrypt.hash(generatedPassword, 10),
+      };
       ownerCreated = true;
     }
   }
 
   const slug = await uniqueEstablishmentSlug(name);
 
-  const establishment = await prisma.establishment.create({
-    data: {
-      name,
-      slug,
-      document: document || null,
-      phone: phone || null,
-      address: address || null,
-      ownerId: resolvedOwnerId,
-    },
-  });
-
-  await prisma.membership.create({
-    data: { userId: resolvedOwnerId, establishmentId: establishment.id, role: "ADMIN" },
+  // Cria (dono novo, se for o caso) + empresa + vínculo ADMIN atomicamente.
+  const establishment = await prisma.$transaction(async (tx) => {
+    if (!resolvedOwnerId && newOwnerData) {
+      const created = await tx.user.create({
+        data: { ...newOwnerData, role: "USER", mustChangePassword: true },
+      });
+      resolvedOwnerId = created.id;
+    }
+    const est = await tx.establishment.create({
+      data: {
+        name,
+        slug,
+        document: document || null,
+        phone: phone || null,
+        address: address || null,
+        ownerId: resolvedOwnerId!,
+      },
+    });
+    await tx.membership.create({
+      data: { userId: resolvedOwnerId!, establishmentId: est.id, role: "ADMIN" },
+    });
+    return est;
   });
 
   return NextResponse.json(

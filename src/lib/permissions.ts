@@ -21,6 +21,10 @@ export const PERMISSIONS = {
   // Financeiro
   FINANCE_READ: "finance:read",
   FINANCE_WRITE: "finance:write",
+
+  // Comanda & Mesas (operação / PDV)
+  ORDER_READ: "order:read",
+  ORDER_WRITE: "order:write",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -60,6 +64,13 @@ export const PERMISSION_GROUPS: {
     permissions: [
       { key: PERMISSIONS.FINANCE_READ, label: "Ver financeiro" },
       { key: PERMISSIONS.FINANCE_WRITE, label: "Lançar financeiro" },
+    ],
+  },
+  {
+    label: "Comanda & Mesas",
+    permissions: [
+      { key: PERMISSIONS.ORDER_READ, label: "Ver comandas e mesas" },
+      { key: PERMISSIONS.ORDER_WRITE, label: "Abrir, lançar e fechar comandas" },
     ],
   },
 ];

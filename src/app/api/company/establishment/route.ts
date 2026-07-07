@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireEstablishment, requirePermission, jsonError, zodError } from "@/lib/auth";
+import { requireEstablishment, jsonError, zodError } from "@/lib/auth";
 import { withRoute } from "@/lib/http";
-import { PERMISSIONS } from "@/lib/permissions";
 import { resolveEditableSlug } from "@/lib/slug";
 
 // Dados da empresa ATIVA (escopo via x-establishment-id). Qualquer membro lê.
@@ -27,8 +26,8 @@ export const GET = withRoute(async (req: NextRequest) => {
   return NextResponse.json({ establishment });
 });
 
-// Edição dos dados da própria empresa pelo dono/gestor. Exige ESTABLISHMENT_MANAGE.
-// Não permite inativar (ativar/inativar é exclusivo do super admin) nem trocar o slug.
+// Edição dos dados cadastrais da empresa — EXCLUSIVA do SUPER_ADMIN (o dono
+// apenas visualiza; ver também EmpresasView na plataforma). Não permite inativar.
 const updateSchema = z
   .object({
     name: z.string().min(2, "O nome da empresa deve ter ao menos 2 caracteres").optional(),
@@ -41,8 +40,11 @@ const updateSchema = z
   .refine((v) => Object.keys(v).length > 0, { message: "Nada para atualizar" });
 
 export const PATCH = withRoute(async (req: NextRequest) => {
-  const { ctx, response } = await requirePermission(req, PERMISSIONS.ESTABLISHMENT_MANAGE);
+  const { ctx, response } = await requireEstablishment(req);
   if (response) return response;
+  if (!ctx.isSuperAdmin) {
+    return jsonError("Apenas o super admin pode alterar os dados da empresa.", 403);
+  }
 
   const body = await req.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);

@@ -109,8 +109,7 @@ export const openApiSpec = {
     "/auth/register": {
       post: {
         tags: ["Auth"],
-        summary: "Onboarding do dono: cria usuário + empresa + vínculo ADMIN",
-        security: [],
+        summary: "Onboarding de dono + empresa (apenas SUPER_ADMIN)",
         requestBody: {
           required: true,
           content: {
@@ -129,8 +128,10 @@ export const openApiSpec = {
           },
         },
         responses: {
-          200: { description: "Empresa e usuário criados (retorna token)" },
+          201: { description: "Empresa e dono criados" },
           400: { description: "Dados inválidos ou e-mail já cadastrado" },
+          401: { description: "Não autorizado" },
+          403: { description: "Apenas o super admin pode criar empresas" },
         },
       },
     },

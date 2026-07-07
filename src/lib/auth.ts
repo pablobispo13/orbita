@@ -3,6 +3,7 @@ import type { ZodError } from "zod";
 import { verifyToken, type JwtPayload } from "@/lib/jwt";
 import { prisma } from "@/lib/prisma";
 import { ALL_PERMISSIONS, type Permission } from "@/lib/permissions";
+import { resolveEnabledModules, type ModuleKey } from "@/lib/modules";
 
 // -----------------------------------------------------------------------------
 // Helpers de resposta
@@ -63,7 +64,20 @@ export type EstablishmentContext = {
   isSuperAdmin: boolean;
   isEstablishmentAdmin: boolean;
   permissions: Permission[];
+  /// Módulos (ferramentas) efetivamente ativos nesta empresa (ver src/lib/modules.ts).
+  /// Vale para todos os papéis, inclusive SUPER_ADMIN: um módulo desligado não
+  /// existe para a empresa, ainda que o usuário tenha a permissão.
+  modules: ModuleKey[];
 };
+
+/// Carrega os módulos efetivamente ativos de uma empresa (overrides + padrões).
+async function loadEnabledModules(establishmentId: string): Promise<ModuleKey[]> {
+  const overrides = await prisma.establishmentModule.findMany({
+    where: { establishmentId },
+    select: { moduleKey: true, enabled: true },
+  });
+  return resolveEnabledModules(overrides);
+}
 
 /// Resolve a empresa ativa (header `x-establishment-id` ou query `establishmentId`),
 /// valida o acesso do usuário e calcula as permissões efetivas.
@@ -97,6 +111,7 @@ export async function requireEstablishment(
         isSuperAdmin: true,
         isEstablishmentAdmin: true,
         permissions: ALL_PERMISSIONS,
+        modules: await loadEnabledModules(establishmentId),
       },
     };
   }
@@ -124,6 +139,7 @@ export async function requireEstablishment(
       isSuperAdmin: false,
       isEstablishmentAdmin,
       permissions,
+      modules: await loadEnabledModules(establishmentId),
     },
   };
 }
@@ -140,6 +156,27 @@ export async function requirePermission(
   if (result.response) return result;
   if (!result.ctx.permissions.includes(permission)) {
     return { response: jsonError("Permissão insuficiente", 403) };
+  }
+  return result;
+}
+
+/// Exige que um MÓDULO esteja habilitado na empresa ativa e, opcionalmente, uma
+/// permissão dentro dele. Módulo desligado => 403, independente do papel (nem o
+/// SUPER_ADMIN opera uma ferramenta que a empresa não contratou).
+export async function requireModule(
+  req: NextRequest,
+  moduleKey: ModuleKey,
+  permission?: Permission
+): Promise<
+  | { ctx: EstablishmentContext; response?: never }
+  | { ctx?: never; response: NextResponse }
+> {
+  const result = permission
+    ? await requirePermission(req, permission)
+    : await requireEstablishment(req);
+  if (result.response) return result;
+  if (!result.ctx.modules.includes(moduleKey)) {
+    return { response: jsonError("Módulo não habilitado para esta empresa", 403) };
   }
   return result;
 }

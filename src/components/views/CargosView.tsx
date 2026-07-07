@@ -13,6 +13,7 @@ import {
   type FilterTag,
 } from "@/components/ListControls";
 import { ALL_PERMISSIONS, PERMISSION_GROUPS, type Permission } from "@/lib/permissions";
+import { useConfirm } from "@/components/ConfirmProvider";
 
 // Filtros: um por grupo de permissão + "sem permissões".
 const CARGO_FILTERS: FilterTag[] = [
@@ -57,6 +58,7 @@ const OWNER_ROLE: Role = {
 
 // CRUD de cargos (Roles) da empresa ativa. Escopo garantido pelo x-establishment-id.
 export function CargosView({ companyName }: { companyName?: string | null }) {
+  const confirm = useConfirm();
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -193,7 +195,13 @@ export function CargosView({ companyName }: { companyName?: string | null }) {
   }
 
   async function remove(role: Role) {
-    if (!confirm(`Excluir o cargo "${role.name}"?`)) return;
+    const ok = await confirm({
+      title: "Excluir cargo",
+      message: `Excluir o cargo "${role.name}"?`,
+      confirmLabel: "Excluir",
+      tone: "danger",
+    });
+    if (!ok) return;
     setDeletingId(role.id);
     try {
       await api.delete(`/roles/${role.id}`);
@@ -511,9 +519,9 @@ export function CargosView({ companyName }: { companyName?: string | null }) {
             {saving ? "Salvando..." : editing ? "Salvar alterações" : "Criar cargo"}
           </button>
           <button
+            type="button"
             onClick={() => setFormOpen(false)}
-            className="text-sm hover:underline"
-            style={{ color: "var(--text-muted)" }}
+            className="orbita-btn-secondary px-4 py-2.5"
           >
             Cancelar
           </button>

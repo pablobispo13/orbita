@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuthContext } from "@/context/AuthContext";
+import { MODULES, type ModuleKey } from "@/lib/modules";
+import type { NavigationSettings } from "@/lib/settings";
 
 export type ViewKey =
   | "dashboard"
@@ -11,10 +13,22 @@ export type ViewKey =
   | "config-empresa"
   | "usuarios"
   | "cargos"
+  | "modulos"
+  | "produtos"
+  | "categorias"
+  | "estoque"
+  | "financeiro"
+  | "gastos-fixos"
+  | "simulacao"
+  | "relatorios"
+  | "comanda"
+  | "cozinha"
   | "seguranca";
 export type ShellMode = "platform" | "company";
 
-type NavItem = { key: ViewKey; label: string; icon: string };
+// `module`: item pertence a um módulo plugável — só aparece se ele estiver
+// habilitado na empresa (ver src/lib/modules.ts).
+type NavItem = { key: ViewKey; label: string; icon: string; module?: ModuleKey };
 // `multiCompany`: só aparece para usuário comum com 2+ empresas.
 type NavGroup = { label: string; items: NavItem[]; superAdmin?: boolean; multiCompany?: boolean };
 
@@ -37,11 +51,37 @@ const PLATFORM_GROUPS: NavGroup[] = [
 ];
 
 // Menu do contexto EMPRESA (/{slug}/dashboard) — operação da empresa,
-// agrupado por categoria.
+// agrupado por categoria: dia a dia (Operação), catálogo/insumos (Cadastros),
+// dinheiro (Financeiro) e administração.
 const COMPANY_GROUPS: NavGroup[] = [
   {
     label: "Geral",
     items: [{ key: "dashboard", label: "Dashboard", icon: "🏠" }],
+  },
+  {
+    label: "Operação",
+    items: [
+      // Itens de módulos plugáveis — filtrados pelos módulos ativos da empresa.
+      { key: "comanda", label: "Comanda & Mesas", icon: "🧾", module: MODULES.COMANDA },
+      { key: "cozinha", label: "Cozinha", icon: "👨‍🍳", module: MODULES.COMANDA },
+    ],
+  },
+  {
+    label: "Cadastros",
+    items: [
+      { key: "produtos", label: "Produtos", icon: "🍕", module: MODULES.PRODUCTS },
+      { key: "categorias", label: "Categorias", icon: "🏷️", module: MODULES.PRODUCTS },
+      { key: "estoque", label: "Estoque", icon: "📦", module: MODULES.STOCK },
+    ],
+  },
+  {
+    label: "Financeiro",
+    items: [
+      { key: "financeiro", label: "Lançamentos", icon: "💰", module: MODULES.FINANCE },
+      { key: "gastos-fixos", label: "Gastos fixos", icon: "🏭", module: MODULES.FINANCE },
+      { key: "simulacao", label: "Simulação", icon: "🧮", module: MODULES.PRODUCTS },
+      { key: "relatorios", label: "Relatórios", icon: "📊", module: MODULES.FINANCE },
+    ],
   },
   {
     label: "Configurações",
@@ -51,11 +91,17 @@ const COMPANY_GROUPS: NavGroup[] = [
       { key: "usuarios", label: "Usuários", icon: "👥" },
     ],
   },
+  {
+    label: "Administração",
+    superAdmin: true,
+    items: [{ key: "modulos", label: "Módulos", icon: "🧩" }],
+  },
 ];
 
 // Configurações base expostas por empresa no submenu do super admin.
 const COMPANY_CONFIG_ITEMS: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "🏠" },
+  { key: "modulos", label: "Módulos", icon: "🧩" },
   { key: "config-empresa", label: "Empresa", icon: "🏢" },
   { key: "cargos", label: "Cargos", icon: "🛡️" },
   { key: "usuarios", label: "Usuários", icon: "👥" },
@@ -63,15 +109,24 @@ const COMPANY_CONFIG_ITEMS: NavItem[] = [
 
 type CompanyRef = { id: string; name: string; slug: string };
 
+// Um item de módulo só é permitido se o módulo estiver ativo. `enabledModules`
+// nulo = ainda não carregado: não bloqueia (evita "chutar" a view antes da hora).
+function itemAllowedByModule(item: NavItem, enabledModules?: ModuleKey[] | null): boolean {
+  if (!item.module) return true;
+  if (enabledModules == null) return true;
+  return enabledModules.includes(item.module);
+}
+
 export function viewsForMode(
   mode: ShellMode,
   isSuperAdmin: boolean,
-  multiCompany = false
+  multiCompany = false,
+  enabledModules?: ModuleKey[] | null
 ): ViewKey[] {
   const groups = mode === "company" ? COMPANY_GROUPS : PLATFORM_GROUPS;
   const keys = groups
     .filter((g) => (!g.superAdmin || isSuperAdmin) && (!g.multiCompany || multiCompany))
-    .flatMap((g) => g.items.map((i) => i.key));
+    .flatMap((g) => g.items.filter((i) => itemAllowedByModule(i, enabledModules)).map((i) => i.key));
   // "Segurança" é da conta do usuário — disponível em qualquer contexto.
   return [...keys, "seguranca"];
 }
@@ -85,6 +140,8 @@ export function Sidebar({
   onLogout,
   onClose,
   mounted = true,
+  enabledModules = null,
+  navigation = null,
 }: {
   open: boolean;
   mode: ShellMode;
@@ -96,14 +153,34 @@ export function Sidebar({
   onLogout?: () => void;
   onClose: () => void;
   mounted?: boolean;
+  // Módulos ativos da empresa (contexto company). Filtra os itens de módulo.
+  enabledModules?: ModuleKey[] | null;
+  // Estrutura de tela da empresa (Fase 6): itens ocultos e ordem personalizada.
+  navigation?: NavigationSettings | null;
 }) {
   const { user, logout } = useAuthContext();
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
   const multiCompany = !isSuperAdmin && (user?.memberships?.length ?? 0) >= 2;
 
-  const groups = (mode === "company" ? COMPANY_GROUPS : PLATFORM_GROUPS).filter(
-    (g) => (!g.superAdmin || isSuperAdmin) && (!g.multiCompany || multiCompany)
-  );
+  // Ordem personalizada: itens listados em `order` vêm primeiro (na ordem
+  // salva); os demais mantêm a posição padrão do grupo.
+  const rank = (key: string, defaultIdx: number): number => {
+    const i = navigation?.order.indexOf(key as NavigationSettings["order"][number]) ?? -1;
+    return i >= 0 ? i : (navigation?.order.length ?? 0) + defaultIdx;
+  };
+
+  const groups = (mode === "company" ? COMPANY_GROUPS : PLATFORM_GROUPS)
+    .filter((g) => (!g.superAdmin || isSuperAdmin) && (!g.multiCompany || multiCompany))
+    .map((g) => ({
+      ...g,
+      items: g.items
+        .filter((i) => itemAllowedByModule(i, enabledModules))
+        .filter((i) => !navigation?.hidden.includes(i.key as NavigationSettings["hidden"][number]))
+        .map((item, idx) => ({ item, idx }))
+        .sort((a, b) => rank(a.item.key, a.idx) - rank(b.item.key, b.idx))
+        .map(({ item }) => item),
+    }))
+    .filter((g) => g.items.length > 0);
 
   // Lista de empresas para o submenu do super admin (só no contexto plataforma).
   const [companies, setCompanies] = useState<CompanyRef[]>([]);

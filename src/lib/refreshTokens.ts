@@ -24,7 +24,19 @@ export async function issueRefreshToken(userId: string): Promise<string> {
   await prisma.refreshToken.create({
     data: { token, userId, expiresAt: expiry() },
   });
+  // Higiene: limpa tokens já expirados (best-effort, não bloqueia o login).
+  void purgeExpiredRefreshTokens().catch(() => {});
   return token;
+}
+
+/// Remove todos os refresh tokens já expirados (higiene da tabela). Seguro de
+/// rodar a qualquer momento; chamado no login e disponível como script/cron
+/// (`npm run tokens:purge`). Retorna quantos foram apagados.
+export async function purgeExpiredRefreshTokens(): Promise<number> {
+  const { count } = await prisma.refreshToken.deleteMany({
+    where: { expiresAt: { lt: new Date() } },
+  });
+  return count;
 }
 
 /// Valida e ROTACIONA um refresh token: apaga o atual e emite um novo.

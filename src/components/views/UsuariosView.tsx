@@ -13,6 +13,7 @@ import {
   useViewMode,
   type FilterTag,
 } from "@/components/ListControls";
+import { useConfirm } from "@/components/ConfirmProvider";
 
 const USER_FILTERS: FilterTag[] = [
   { key: "super", label: "Super admin" },
@@ -31,6 +32,7 @@ type AdminUser = {
 
 export function UsuariosView() {
   const { user } = useAuthContext();
+  const confirm = useConfirm();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -86,8 +88,12 @@ export function UsuariosView() {
   }, [isSuperAdmin]);
 
   async function resetPassword(target: AdminUser) {
-    if (!confirm(`Resetar a senha de ${target.email}? Uma senha temporária será gerada.`))
-      return;
+    const ok = await confirm({
+      title: "Resetar senha",
+      message: `Resetar a senha de ${target.email}? Uma senha temporária será gerada.`,
+      confirmLabel: "Resetar senha",
+    });
+    if (!ok) return;
     setResettingId(target.id);
     try {
       const { data } = await api.post<{ generatedPassword: string }>(

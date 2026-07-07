@@ -4,8 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { requireEstablishment, requirePermission, jsonError, zodError } from "@/lib/auth";
 import { withRoute } from "@/lib/http";
 import { PERMISSIONS, ALL_PERMISSIONS } from "@/lib/permissions";
+import { parsePagination, pageMeta } from "@/lib/pagination";
 
-// Lista os cargos (roles) da empresa ativa.
+// Lista os cargos (roles) da empresa ativa. Paginação opt-in.
 // Basta gerenciar cargos OU membros — a lista alimenta a atribuição de cargo.
 export const GET = withRoute(async (req: NextRequest) => {
   const { ctx, response } = await requireEstablishment(req);
@@ -17,10 +18,17 @@ export const GET = withRoute(async (req: NextRequest) => {
     return jsonError("Permissão insuficiente", 403);
   }
 
+  const where = { establishmentId: ctx.establishmentId };
+  const pg = parsePagination(req);
   const roles = await prisma.role.findMany({
-    where: { establishmentId: ctx.establishmentId },
+    where,
     orderBy: { name: "asc" },
+    ...(pg ? { skip: pg.skip, take: pg.take } : {}),
   });
+  if (pg) {
+    const total = await prisma.role.count({ where });
+    return NextResponse.json({ roles, pagination: pageMeta(pg, total) });
+  }
   return NextResponse.json({ roles });
 });
 

@@ -55,6 +55,28 @@ enum TransactionType {
   EXPENSE // despesa
 }
 
+/// Situação de uma comanda.
+enum OrderStatus {
+  OPEN // aberta (em atendimento)
+  CLOSED // fechada (paga → virou receita)
+  CANCELLED // cancelada (não gera receita)
+}
+
+/// Origem/tipo da comanda.
+enum OrderType {
+  TABLE // mesa
+  COUNTER // balcão
+  DELIVERY // entrega
+}
+
+/// Forma de pagamento no fechamento da comanda.
+enum PaymentMethod {
+  CASH // dinheiro
+  CARD // cartão
+  PIX
+  OTHER
+}
+
 /// Tipo de notificação. Sistema genérico usado por vários módulos.
 enum NotificationType {
   PASSWORD_RESET_REQUEST // funcionário pediu recuperação de senha (requer ação)
@@ -68,6 +90,27 @@ enum NotificationStatus {
   PENDING // requer ação do gestor (ex.: gerar senha)
   RESOLVED // ação concluída
   INFO // apenas informativo
+}
+
+/// Como uma regra de notificação (NotificationRule) é disparada.
+enum NotificationTrigger {
+  EVENT_SALE // a cada nova venda (evento, em tempo real)
+  INTERVAL // a cada N minutos (agendado)
+  DAILY // todo dia num horário (agendado)
+}
+
+/// O que uma regra de notificação envia (conteúdo).
+enum NotificationRuleKind {
+  SALE_EVENT // aviso de nova venda (valor)
+  SALES_SUMMARY // agrupamento de vendas do período
+  LOW_STOCK // insumos abaixo do estoque mínimo
+  LOW_PROFIT // lucro do dia abaixo da meta (threshold)
+}
+
+/// Público-alvo do envio (push + destaque).
+enum NotificationAudience {
+  MANAGERS // dono + cargos com member:manage
+  ALL_MEMBERS // todos os membros da empresa
 }
 
 // =============================================================================
@@ -111,14 +154,49 @@ model Establishment {
   ownerId String @db.ObjectId
   owner   User   @relation("EstablishmentOwner", fields: [ownerId], references: [id])
 
-  memberships   Membership[]
-  roles         Role[]
-  products      Product[]
-  stockItems    StockItem[]
-  stockMoves    StockMovement[]
-  transactions  Transaction[]
-  categories    Category[]
-  notifications Notification[]
+  // Configurações da empresa personalizáveis pelo dono (Fase 6): aparência
+  // (tema/cores), design e preferências. JSON escalar => portável p/ Postgres
+  // (jsonb). NÃO guarda módulos (esses ficam em EstablishmentModule, sob o super
+  // admin). Estrutura e defaults em src/lib/settings.ts.
+  settings Json?
+
+  memberships    Membership[]
+  roles          Role[]
+  products       Product[]
+  stockItems     StockItem[]
+  stockMoves     StockMovement[]
+  transactions   Transaction[]
+  categories     Category[]
+  notifications  Notification[]
+  modules        EstablishmentModule[]
+  periodClosings PeriodClosing[]
+  tables         Table[]
+  orders         Order[]
+  recipeItems    RecipeItem[]
+  notificationRules NotificationRule[]
+  categoryDefaultItems CategoryDefaultItem[]
+  fixedCosts     FixedCost[]
+}
+
+// =============================================================================
+// ESTABLISHMENT MODULE — módulos (ferramentas) habilitados por empresa.
+// Sistema modular: o SUPER_ADMIN liga/desliga módulos (Estoque, Financeiro...)
+// por empresa. Guardamos apenas OVERRIDES: a ausência de linha significa "usar
+// o padrão do catálogo" (ver src/lib/modules.ts → resolveEnabledModules).
+// `moduleKey` referencia MODULES em src/lib/modules.ts (string portável).
+// =============================================================================
+
+model EstablishmentModule {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  moduleKey String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  @@unique([establishmentId, moduleKey])
 }
 
 // =============================================================================
@@ -179,8 +257,53 @@ model Category {
 
   products     Product[]
   transactions Transaction[]
+  defaultItems CategoryDefaultItem[]
 
   @@unique([establishmentId, name])
+}
+
+// =============================================================================
+// INSUMOS PADRÃO POR CATEGORIA — ex.: toda "Pizza" leva molho e massa.
+// Ao criar um produto na categoria, a ficha técnica nasce pré-populada com
+// estes itens (ver POST /api/products). `quantity` = consumo por unidade.
+// =============================================================================
+
+model CategoryDefaultItem {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  quantity Float
+
+  categoryId String   @db.ObjectId
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  stockItemId String    @db.ObjectId
+  stockItem   StockItem @relation(fields: [stockItemId], references: [id])
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  @@unique([categoryId, stockItemId])
+}
+
+// =============================================================================
+// FECHAMENTO DE PERÍODO (Financeiro) — "trava" um mês com o resultado apurado.
+// Snapshot dos totais (receita/despesa/lucro) no momento do fechamento. Enquanto
+// um mês está fechado, novos lançamentos/edições com data nele são bloqueados.
+// =============================================================================
+
+model PeriodClosing {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  year         Int
+  month        Int // 1-12
+  totalIncome  Float
+  totalExpense Float
+  profit       Float
+  note         String?
+  closedAt     DateTime @default(now())
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  @@unique([establishmentId, year, month])
 }
 
 // =============================================================================
@@ -191,6 +314,11 @@ model Product {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   name        String
   description String?
+  // Custo total do produto (insumos + rateio). Base da precificação por margem
+  // (ver src/lib/pricing.ts): preço sugerido = cost * (1 + margem).
+  cost        Float    @default(0)
+  // Margem-alvo (%) do produto, personalizável por item (ex.: 15, 25, 50).
+  marginPct   Float    @default(25)
   price       Float
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
@@ -201,6 +329,10 @@ model Product {
 
   categoryId String?   @db.ObjectId
   category   Category? @relation(fields: [categoryId], references: [id])
+
+  recipe RecipeItem[]
+
+  @@index([establishmentId, name])
 }
 
 // =============================================================================
@@ -218,9 +350,33 @@ model StockItem {
   establishmentId String        @db.ObjectId
   establishment   Establishment @relation(fields: [establishmentId], references: [id])
 
-  movements StockMovement[]
+  movements    StockMovement[]
+  recipeItems  RecipeItem[]
+  categoryDefaults CategoryDefaultItem[]
 
   @@unique([establishmentId, name])
+}
+
+// =============================================================================
+// FICHA TÉCNICA — receita de um produto: insumos consumidos por unidade vendida.
+// Ao lançar o item na comanda, o estoque é baixado automaticamente (ver
+// src/lib/recipe.ts). `quantity` é o consumo do insumo por 1 unidade do produto.
+// =============================================================================
+
+model RecipeItem {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  quantity Float
+
+  productId String  @db.ObjectId
+  product   Product @relation(fields: [productId], references: [id])
+
+  stockItemId String    @db.ObjectId
+  stockItem   StockItem @relation(fields: [stockItemId], references: [id])
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  @@unique([productId, stockItemId])
 }
 
 model StockMovement {
@@ -235,6 +391,8 @@ model StockMovement {
 
   establishmentId String        @db.ObjectId
   establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  @@index([stockItemId, createdAt])
 }
 
 // =============================================================================
@@ -255,6 +413,30 @@ model Transaction {
 
   categoryId String?   @db.ObjectId
   category   Category? @relation(fields: [categoryId], references: [id])
+
+  @@index([establishmentId, createdAt])
+  @@index([establishmentId, paidAt])
+}
+
+// =============================================================================
+// GASTOS FIXOS (Financeiro) — custos operacionais mensais recorrentes:
+// forno, funcionário, aluguel do salão, energia... Usados na visão do
+// financeiro e no rateio da simulação de vendas (custo fixo por unidade).
+// =============================================================================
+
+model FixedCost {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  amount    Float // valor MENSAL
+  note      String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  @@index([establishmentId])
 }
 
 // =============================================================================
@@ -284,6 +466,117 @@ model Notification {
 
   @@index([establishmentId, createdAt])
   @@index([targetUserId, createdAt])
+}
+
+// =============================================================================
+// REGRA DE NOTIFICAÇÃO (Fase 6) — programação de envios por empresa.
+// Cada regra combina um GATILHO (evento de venda, intervalo, diário) com um
+// CONTEÚDO (aviso de venda, resumo de vendas, estoque baixo) e um público.
+// Regras por evento disparam na hora (ver src/lib/notificationRules.ts →
+// fireSaleEvent); as agendadas são avaliadas pelo cron (/api/cron/notifications,
+// via runScheduledRules), que usa `lastRunAt` para saber o que está "vencido".
+// =============================================================================
+
+model NotificationRule {
+  id      String               @id @default(auto()) @map("_id") @db.ObjectId
+  kind    NotificationRuleKind
+  trigger NotificationTrigger
+  enabled Boolean              @default(true)
+
+  // Configuração do agendamento (conforme o trigger):
+  intervalMinutes Int? // INTERVAL: a cada N minutos
+  dailyMinutes    Int? // DAILY: minutos desde 00:00 (hora do servidor)
+
+  // Condição numérica da regra (conforme o kind). LOW_PROFIT: alerta quando o
+  // lucro do dia fica ABAIXO deste valor (R$).
+  threshold Float?
+
+  audience  NotificationAudience @default(MANAGERS)
+
+  // Modelos de mensagem opcionais (assunto/corpo). Suportam variáveis {token}
+  // conforme o kind (ver src/lib/notificationRules.ts). Nulo => texto padrão.
+  titleTemplate String?
+  bodyTemplate  String?
+
+  lastRunAt DateTime? // última execução (agendadas); nulo => nunca rodou
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  @@index([establishmentId])
+  @@index([trigger, enabled])
+}
+
+// =============================================================================
+// COMANDA & MESAS (Fase 5 — operação/PDV)
+// Mesa (Table) é opcional: a comanda pode ser de balcão/delivery. A comanda
+// (Order) acumula itens (OrderItem, com snapshot de nome/preço do produto) e, ao
+// fechar, vira uma receita no Financeiro (Transaction) quando o módulo estiver on.
+// =============================================================================
+
+model Table {
+  id     String  @id @default(auto()) @map("_id") @db.ObjectId
+  name   String // número/nome da mesa
+  seats  Int? // capacidade (opcional)
+  active Boolean @default(true)
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  orders Order[]
+
+  @@unique([establishmentId, name])
+}
+
+model Order {
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
+  number       Int // sequencial por empresa (para exibição)
+  type         OrderType   @default(TABLE)
+  status       OrderStatus @default(OPEN)
+  customerName String? // nome do cliente (balcão/delivery ou reserva)
+  note         String?
+  total        Float       @default(0) // subtotal dos itens
+  // Fechamento: taxa de serviço e desconto (valores em R$) e forma de pagamento.
+  serviceFee    Float          @default(0)
+  discount      Float          @default(0)
+  people        Int? // nº de pessoas (divisão de conta)
+  paymentMethod PaymentMethod?
+  openedAt     DateTime    @default(now())
+  closedAt     DateTime?
+
+  establishmentId String        @db.ObjectId
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+
+  tableId String? @db.ObjectId
+  table   Table?  @relation(fields: [tableId], references: [id])
+
+  // Preenchido no fechamento: lançamento de receita gerado no Financeiro.
+  transactionId String? @db.ObjectId
+
+  items OrderItem[]
+
+  @@index([establishmentId, status])
+}
+
+model OrderItem {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String // snapshot do nome do produto
+  unitPrice Float // snapshot do preço no momento do lançamento
+  quantity  Int      @default(1)
+  note      String?
+  // Marcado pela cozinha (KDS) quando o item é preparado.
+  prepared  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  orderId String @db.ObjectId
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  // Referência opcional ao produto de origem (pode ser item avulso).
+  productId String? @db.ObjectId
+
+  @@index([orderId])
 }
 
 // =============================================================================

@@ -4,9 +4,28 @@ import { useEffect, useState } from "react";
 import { useAuthContext } from "@/context/AuthContext";
 import { navigateToView } from "@/lib/navigation";
 import api from "@/lib/api";
+import { MODULES, type ModuleKey } from "@/lib/modules";
 
-// Funcionalidades base da empresa, para os cards de acesso rápido no dashboard.
-const QUICK_FEATURES: { view: string; label: string; icon: string; desc: string }[] = [
+type QuickFeature = {
+  view: string;
+  label: string;
+  icon: string;
+  desc: string;
+  module?: ModuleKey; // se definido, só aparece com o módulo ativo
+};
+
+// Telas de módulos plugáveis (aparecem conforme os módulos ativos da empresa).
+const MODULE_FEATURES: QuickFeature[] = [
+  { view: "comanda", module: MODULES.COMANDA, label: "Comanda & Mesas", icon: "🧾", desc: "Abrir comandas e fechar vendas" },
+  { view: "cozinha", module: MODULES.COMANDA, label: "Cozinha", icon: "👨‍🍳", desc: "Fila de preparo dos pedidos" },
+  { view: "produtos", module: MODULES.PRODUCTS, label: "Produtos", icon: "🍕", desc: "Catálogo e precificação" },
+  { view: "estoque", module: MODULES.STOCK, label: "Estoque", icon: "📦", desc: "Insumos e movimentações" },
+  { view: "financeiro", module: MODULES.FINANCE, label: "Financeiro", icon: "💰", desc: "Receitas, despesas e ganhos" },
+  { view: "relatorios", module: MODULES.FINANCE, label: "Relatórios", icon: "📊", desc: "DRE e fechamento de período" },
+];
+
+// Funcionalidades base da empresa (sempre disponíveis) para o acesso rápido.
+const QUICK_FEATURES: QuickFeature[] = [
   { view: "config-empresa", label: "Empresa", icon: "🏢", desc: "Dados cadastrais da empresa" },
   { view: "usuarios", label: "Usuários", icon: "👥", desc: "Equipe e permissões" },
   { view: "cargos", label: "Cargos", icon: "🛡️", desc: "Cargos e suas permissões" },
@@ -15,8 +34,29 @@ const QUICK_FEATURES: { view: string; label: string; icon: string; desc: string 
 export function DashboardView({ companyMode = false }: { companyMode?: boolean }) {
   const { user, activeEstablishmentId, setActiveEstablishment } = useAuthContext();
   const [superAdminActiveName, setSuperAdminActiveName] = useState<string | null>(null);
+  const [enabledModules, setEnabledModules] = useState<ModuleKey[] | null>(null);
 
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
+
+  // Módulos ativos da empresa (contexto empresa) para filtrar o acesso rápido.
+  useEffect(() => {
+    if (!companyMode || !activeEstablishmentId) {
+      setEnabledModules(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<{ modules: ModuleKey[] }>("/company/modules", { silent: true })
+      .then(({ data }) => {
+        if (!cancelled) setEnabledModules(data.modules);
+      })
+      .catch(() => {
+        if (!cancelled) setEnabledModules(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyMode, activeEstablishmentId]);
   const membershipActive =
     user?.memberships.find((m) => m.establishment.id === activeEstablishmentId) ?? null;
 
@@ -96,31 +136,37 @@ export function DashboardView({ companyMode = false }: { companyMode?: boolean }
         </p>
       ) : null}
 
-      {/* Acesso rápido às funcionalidades base (dentro de uma empresa) */}
-      {companyMode && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-            Acesso rápido
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {QUICK_FEATURES.map((f) => (
-              <button
-                key={f.view}
-                onClick={() => navigateToView({ view: f.view })}
-                className="text-left orbita-card p-4 transition hover:border-[var(--accent)]"
-              >
-                <div className="text-2xl" aria-hidden>
-                  {f.icon}
-                </div>
-                <div className="font-medium mt-2">{f.label}</div>
-                <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                  {f.desc}
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* Acesso rápido: telas de módulos ativos + funcionalidades base */}
+      {companyMode && (() => {
+        const moduleItems = MODULE_FEATURES.filter(
+          (f) => !f.module || (enabledModules?.includes(f.module) ?? false)
+        );
+        const items = [...moduleItems, ...QUICK_FEATURES];
+        return (
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              Acesso rápido
+            </h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {items.map((f) => (
+                <button
+                  key={f.view}
+                  onClick={() => navigateToView({ view: f.view })}
+                  className="text-left orbita-card p-4 transition hover:border-[var(--accent)]"
+                >
+                  <div className="text-2xl" aria-hidden>
+                    {f.icon}
+                  </div>
+                  <div className="font-medium mt-2">{f.label}</div>
+                  <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                    {f.desc}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* Trocar de empresa: outras empresas do usuário (dentro de uma empresa) */}
       {companyMode && (() => {

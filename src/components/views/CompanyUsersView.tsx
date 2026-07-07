@@ -12,6 +12,7 @@ import {
   useViewMode,
   type FilterTag,
 } from "@/components/ListControls";
+import { useConfirm } from "@/components/ConfirmProvider";
 
 type CompanyUser = {
   id: string;
@@ -42,6 +43,7 @@ export function CompanyUsersView({
   focusUserId?: string | null;
   focusNonce?: number;
 }) {
+  const confirm = useConfirm();
   const [users, setUsers] = useState<CompanyUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
@@ -167,7 +169,12 @@ export function CompanyUsersView({
   }
 
   async function resetMemberPassword(user: CompanyUser) {
-    if (!confirm(`Gerar nova senha temporária para ${user.name}?`)) return;
+    const ok = await confirm({
+      title: "Redefinir senha",
+      message: `Gerar nova senha temporária para ${user.name}?`,
+      confirmLabel: "Gerar senha",
+    });
+    if (!ok) return;
     setBusyId(user.id);
     try {
       const { data } = await api.post<{ email: string; generatedPassword: string }>(
@@ -184,7 +191,13 @@ export function CompanyUsersView({
   }
 
   async function removeMember(user: CompanyUser) {
-    if (!confirm(`Remover ${user.name} da empresa?`)) return;
+    const ok = await confirm({
+      title: "Remover membro",
+      message: `Remover ${user.name} da empresa?`,
+      confirmLabel: "Remover",
+      tone: "danger",
+    });
+    if (!ok) return;
     setBusyId(user.id);
     try {
       await api.delete(`/company/users/${user.id}`);
@@ -371,8 +384,7 @@ export function CompanyUsersView({
             <button
               type="button"
               onClick={() => setAddOpen(false)}
-              className="text-sm hover:underline"
-              style={{ color: "var(--text-muted)" }}
+              className="orbita-btn-secondary px-4 py-2.5"
             >
               Cancelar
             </button>
